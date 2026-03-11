@@ -1,0 +1,21 @@
+# Entornos virtuales (¡MUY IMPORTANTE no subir esto!)
+venv/
+env/
+
+# Caché y archivos compilados de Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Variables de entorno y secretos (donde irán tus contraseñas de base de datos)
+.env
+
+# Archivos del sistema operativo (especialmente si usas Mac)
+.DS_Store
+
+# Configuraciones de tu editor de código
+.vscode/
+.idea/
+
+# Logs de la aplicación
+*.log
