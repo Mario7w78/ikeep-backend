@@ -20,4 +20,4 @@ class ActividadProgramada(BaseModel):
     id_actividad: str
     nombre: str
     inicio: int
-    fin: int
+    fin: int                                                                                                                

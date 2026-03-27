@@ -1,6 +1,5 @@
-# use_cases/scheduler.py
 from ortools.sat.python import cp_model
-from Domain.Entities import Actividad, ActividadProgramada
+from schemas.Entities import Actividad, ActividadProgramada
 
 def generar_horario_optimizado(actividades: list[Actividad], inicio_dia: int, fin_dia: int) -> list[ActividadProgramada]:
     model = cp_model.CpModel()
