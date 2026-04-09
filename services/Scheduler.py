@@ -51,7 +51,6 @@ class GestorVariablesHorario:
         print(f"[FIJA] {act.nombre} | inicio_bloque={inicio_bloque} duracion={duracion} "
           f"fin_esperado={inicio_bloque + duracion} | fin_dia={self.fin_dia}")
     
-    # Validación explícita
         if inicio_bloque < self.inicio_dia:
             raise ValueError(
                 f"Actividad fija '{act.nombre}': el bloque empieza en {inicio_bloque} "
@@ -63,26 +62,23 @@ class GestorVariablesHorario:
                 f"pero el día termina en {self.fin_dia}."
             )
     
-        inicio_actividad = act.inicio_minutos or 0
-        traslado = act.tiempo_traslado_minutos or 0
-        inicio_bloque = inicio_actividad - traslado
+        for dia in act.dias_permitidos:
+            start_var = self.model.NewConstant(inicio_bloque)
+            end_var = self.model.NewConstant(inicio_bloque + duracion)
+            
+            interval_var = self.model.NewIntervalVar(
+                start_var, duracion, end_var, f"int_{act.id}_d{dia}"
+            )
 
-        start_var = self.model.NewConstant(inicio_bloque)
-        end_var = self.model.NewConstant(inicio_bloque + duracion)
-        interval_var = self.model.NewIntervalVar(start_var, duracion, end_var, f"int_{act.id}")
+            self.intervalos_por_dia[dia].append(interval_var)
 
-        dia_fijo = act.dias_permitidos[0]
-        self.intervalos_por_dia[dia_fijo].append(interval_var)
-
-        presence_var = self.model.NewConstant(1)
-        self.estado_tareas[act.id]["vars_dia"][dia_fijo] = (presence_var, start_var, end_var)
+            presence_var = self.model.NewConstant(1)
+            self.estado_tareas[act.id]["vars_dia"][dia] = (presence_var, start_var, end_var)
 
     def _crear_variables_flexibles(self, act: Actividad, duracion: int) -> None:
-        presencias_posibles = []
 
         for dia in act.dias_permitidos:
-            presence_var = self.model.NewBoolVar(f"pres_{act.id}_d{dia}")
-            presencias_posibles.append(presence_var)
+            presence_var = self.model.NewConstant(1)  # ✅ siempre presente, como fija
 
             start_var = self.model.NewIntVar(
                 self.inicio_dia,
@@ -95,22 +91,14 @@ class GestorVariablesHorario:
                 f"end_{act.id}_d{dia}",
             )
 
-            interval_var = self.model.NewOptionalIntervalVar(
-                start_var, duracion, end_var, presence_var, f"int_opt_{act.id}_d{dia}"
+            interval_var = self.model.NewIntervalVar(  # ✅ ya no es Optional
+            start_var, duracion, end_var, f"int_{act.id}_d{dia}"
             )
 
             self.intervalos_por_dia[dia].append(interval_var)
             self.estado_tareas[act.id]["vars_dia"][dia] = (presence_var, start_var, end_var)
 
-            # Guardamos el inicio para la función objetivo:
-            # cuando la actividad no está en este día, su contribución al costo es 0.
-            inicio_ponderado = self.model.NewIntVar(0, self.fin_dia, f"obj_{act.id}_d{dia}")
-            self.model.Add(inicio_ponderado == start_var).OnlyEnforceIf(presence_var)
-            self.model.Add(inicio_ponderado == 0).OnlyEnforceIf(presence_var.Not())
-            self._vars_inicio_flexibles.append(inicio_ponderado)
-
-        # Solo un día puede ser elegido
-        self.model.AddExactlyOne(presencias_posibles)
+            self._vars_inicio_flexibles.append(start_var)  # ✅ directo, sin ponderar
 
 
 def _aplicar_no_solapamiento(model: cp_model.CpModel, intervalos_por_dia: dict) -> None:
