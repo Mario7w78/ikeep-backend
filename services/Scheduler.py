@@ -39,7 +39,11 @@ class GestorVariablesHorario:
                 f"supera la ventana del día ({self.fin_dia - self.inicio_dia} min)."
             )
 
-        self.estado_tareas[act.id] = {"nombre": act.nombre, "vars_dia": {}}
+        self.estado_tareas[act.id] = {
+            "nombre": act.nombre,
+            "id_original": act.id_actividad_original,
+            "vars_dia": {}
+        }
 
         if act.es_fija:
             self._crear_variables_fijas(act, duracion_total)
@@ -155,6 +159,7 @@ class PlanificadorSemanal:
                     actividades_programadas.append(
                         ActividadProgramada(
                             id_actividad=act_id,
+                            id_actividad_original=info["id_original"],
                             nombre=info["nombre"],
                             dia=dia,
                             inicio=solver.Value(start_var),

@@ -3,6 +3,7 @@ from typing import Optional, List
 
 class Actividad(BaseModel):
     id: str
+    id_actividad_original: str
     nombre: str
     es_fija: bool
     duracion_minutos: int
@@ -18,6 +19,7 @@ class HorarioRequest(BaseModel):
 
 class ActividadProgramada(BaseModel):
     id_actividad: str
+    id_actividad_original: str
     nombre: str
     dia: int
     inicio: int
