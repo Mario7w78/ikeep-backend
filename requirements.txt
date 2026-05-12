@@ -12,6 +12,7 @@ ortools==9.15.6755
 pandas==3.0.1
 protobuf==6.33.5
 pydantic==2.12.5
+pydantic-settings==2.14.1
 pydantic_core==2.41.5
 python-dateutil==2.9.0.post0
 six==1.17.0
