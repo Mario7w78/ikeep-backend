@@ -3,7 +3,8 @@ from dataclasses import dataclass, field
 
 from ortools.sat.python import cp_model
 
-from domain.entities.enums import Dificultad, EstadoSolucion, TipoActividad
+from domain.entities.enums import Dificultad, EstadoSolucion, PatronEnergia, TipoActividad
+from domain.services.energy_classifier import clasificar_patron_energia
 from domain.entities.schedule_request import SolicitudHorario
 from domain.entities.schedule_response import BloqueTiempo, RespuestaHorario
 from domain.ports.inbound.scheduler_port import AbstractSchedulerService
@@ -48,6 +49,9 @@ class ScheduleOptimizer(AbstractSchedulerService):
         model = cp_model.CpModel()
         ctx = solicitud.contexto_usuario
 
+        patron = clasificar_patron_energia(ctx.historial_energia, ctx.nivel_energia)
+        self._patron_override = patron
+
         travel_lookup = self._build_travel_lookup(solicitud)
 
         state: dict = {
@@ -82,7 +86,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
         objective_terms: list[int] = []
 
         if solicitud.tareas_pendientes:
-            self._rb_01(model, ctx, state, objective_terms)
+            self._rb_01(model, ctx, state, objective_terms, patron)
             self._rb_02(model, ctx, state, objective_terms)
             self._rb_03(model, ctx, state, objective_terms)
             self._rb_04(model, ctx, state, objective_terms)
@@ -229,19 +233,54 @@ class ScheduleOptimizer(AbstractSchedulerService):
 
     # ==================== Restricciones blandas ====================
 
-    def _rb_01(self, model, ctx, state, terms):
-        """RB-01: penalizar tareas difíciles empezando tarde si energía baja."""
+    def _rb_01(self, model, ctx, state, terms, patron: PatronEnergia):
+        """RB-01: penalizar tareas según patrón de energía.
+
+        TRANSCRIPTORIO: penaliza ALTA que empiezan tarde si energía baja.
+        TENDENCIA:      max 1 ALTA/día + mismas penalizaciones.
+        CRONICO:        penaliza TODAS las tareas; ALTA con 2x, no-ALTA por duración.
+        """
         w = self.weights.rb_01
-        if ctx.nivel_energia >= 5 or w == 0:
+        if w == 0:
             return
-        for tid, info in state["flex"].items():
-            if info["dificultad"] != Dificultad.ALTA:
-                continue
-            for dia, v in info["vars"].items():
-                pen = model.NewIntVar(0, 1440 * w, f"rb01_{tid}_d{dia}")
-                model.Add(pen == v["s"] * w).OnlyEnforceIf(v["p"])
-                model.Add(pen == 0).OnlyEnforceIf(v["p"].Not())
-                terms.append(pen)
+
+        if patron == PatronEnergia.TENDENCIA:
+            # Hard constraint: max 1 ALTA task per day
+            for dia in range(7):
+                alta_ps = [
+                    v["p"]
+                    for tid, info in state["flex"].items()
+                    if info["dificultad"] == Dificultad.ALTA and dia in info["vars"]
+                ]
+                if len(alta_ps) > 1:
+                    model.Add(sum(alta_ps) <= 1)
+
+        if patron in (PatronEnergia.TENDENCIA, PatronEnergia.TRANSCRIPTORIO):
+            # Current behavior: penalize ALTA tasks starting late if energy low
+            if ctx.nivel_energia > 2:
+                return
+            for tid, info in state["flex"].items():
+                if info["dificultad"] != Dificultad.ALTA:
+                    continue
+                for dia, v in info["vars"].items():
+                    pen = model.NewIntVar(0, 1440 * w, f"rb01_{tid}_d{dia}")
+                    model.Add(pen == v["s"] * w).OnlyEnforceIf(v["p"])
+                    model.Add(pen == 0).OnlyEnforceIf(v["p"].Not())
+                    terms.append(pen)
+
+        elif patron == PatronEnergia.CRONICO:
+            # Deprioritize ALTA: for ALL tasks add penalty
+            # ALTA uses 2x multiplier; non-ALTA is duration-based (favor short tasks)
+            for tid, info in state["flex"].items():
+                for dia, v in info["vars"].items():
+                    if info["dificultad"] == Dificultad.ALTA:
+                        pen = model.NewIntVar(0, 1440 * w * 2, f"rb01_{tid}_d{dia}")
+                        model.Add(pen == v["s"] * w * 2).OnlyEnforceIf(v["p"])
+                    else:
+                        pen = model.NewIntVar(0, 1440 * w, f"rb01_{tid}_d{dia}")
+                        model.Add(pen == info["dur"] * w).OnlyEnforceIf(v["p"])
+                    model.Add(pen == 0).OnlyEnforceIf(v["p"].Not())
+                    terms.append(pen)
 
     def _rb_02(self, model, ctx, state, terms):
         """RB-02: penalizar concentrar muchas horas en un día."""
@@ -293,6 +332,8 @@ class ScheduleOptimizer(AbstractSchedulerService):
         w = self.weights.rb_04
         if w == 0:
             return
+        if getattr(self, "_patron_override", None) == PatronEnergia.CRONICO:
+            w = max(1, int(w * 0.5))
         day_range = ctx.horario_fin - ctx.horario_inicio
         for dia in range(7):
             contribs: list = []
@@ -317,6 +358,8 @@ class ScheduleOptimizer(AbstractSchedulerService):
         w = self.weights.rb_05
         if w == 0:
             return
+        if getattr(self, "_patron_override", None) == PatronEnergia.CRONICO:
+            w = w + 5
         for tid, info in state["flex"].items():
             if info["dificultad"] != Dificultad.ALTA:
                 continue

@@ -18,3 +18,9 @@ class Dificultad(str, Enum):
     BAJA = "baja"
     MEDIA = "media"
     ALTA = "alta"
+
+
+class PatronEnergia(Enum):
+    TRANSCRIPTORIO = "transcriptoriano"
+    TENDENCIA = "tendencia"
+    CRONICO = "cronico"

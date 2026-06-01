@@ -5,17 +5,11 @@ from schemas.schedule_request import SolicitudHorario as SolicitudDTO
 from schemas.travel_time import TiempoTraslado as TiempoTrasladoDTO
 from schemas.user_context import BloqueSueno as BloqueSuenoDTO
 from schemas.user_context import ContextoUsuario as ContextoDTO
+from schemas.user_context import RegistroEnergia as RegistroEnergiaDTO
 
-from domain.entities.activity import Actividad as ActividadDomain
-from domain.entities.location import Ubicacion as UbicacionDomain
-from domain.entities.reschedule_request import SolicitudReplanificacion as SolicitudReplanDomain
-from domain.entities.schedule_response import (
-    BloqueTiempo as BloqueTiempoDomain,
-    RespuestaHorario as RespuestaDomain,
-)
-from domain.entities.travel_time import TiempoTraslado as TiempoTrasladoDomain
 from domain.entities.user_context import BloqueSueno as BloqueSuenoDomain
 from domain.entities.user_context import ContextoUsuario as ContextoDomain
+from domain.entities.user_context import RegistroEnergia as RegistroEnergiaDomain
 
 
 def actividad_to_domain(dto: ActividadDTO) -> ActividadDomain:
@@ -55,12 +49,22 @@ def bloque_sueno_to_domain(dto: BloqueSuenoDTO) -> BloqueSuenoDomain:
     return BloqueSuenoDomain(dia=dto.dia, inicio=dto.inicio, fin=dto.fin)
 
 
+def registro_energia_to_domain(dto: RegistroEnergiaDTO) -> RegistroEnergiaDomain:
+    return RegistroEnergiaDomain(
+        timestamp=dto.timestamp,
+        nivel=dto.nivel,
+        dia_semana=dto.dia_semana,
+        contexto=dto.contexto,
+    )
+
+
 def contexto_to_domain(dto: ContextoDTO) -> ContextoDomain:
     return ContextoDomain(
         nivel_energia=dto.nivel_energia,
         horario_inicio=dto.horario_inicio,
         horario_fin=dto.horario_fin,
         bloques_sueno=[bloque_sueno_to_domain(b) for b in dto.bloques_sueno],
+        historial_energia=[registro_energia_to_domain(r) for r in dto.historial_energia],
     )
 
 
