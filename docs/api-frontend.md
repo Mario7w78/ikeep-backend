@@ -61,7 +61,7 @@ de energía, concentración, traslados, etc.
     }
   ],
   "contexto_usuario": {            // Opcional (todos los campos tienen defaults)
-    "nivel_energia": 2,            // 1-5, default: 2
+    "nivel_energia": 2,            // 1-3: 1=baja, 2=media, 3=alta. Default: 2
     "horario_inicio": 480,         // default: 480 (08:00)
     "horario_fin": 1200,           // default: 1200 (20:00)
     "bloques_sueno": [             // Opcional - Bloques de sueño por día
@@ -74,7 +74,7 @@ de energía, concentración, traslados, etc.
     "historial_energia": [         // Opcional - Historial de energía (últimos 14 días)
       {
         "timestamp": "2026-06-01T08:00:00+00:00",  // ISO 8601
-        "nivel": 3,               // 1-5
+        "nivel": 3,               // 1-3: 1=baja, 2=media, 3=alta
         "dia_semana": 0,           // 0-6
         "contexto": "Después del café"  // string|null, opcional
       }
@@ -243,7 +243,8 @@ Ordena por: encaja primero → mayor prioridad → menor duración.
 - Todos los errores devuelven `{ error, message, detail }` — parsear `message` para el usuario
 
 ### Energía del usuario
-- `historial_energia` se usa para clasificar patrones: TRANSCRIPTORIO (< 20% días bajos), TENDENCIA (20-60%), CRONICO (> 60%)
+- `nivel_energia` usa rango 1-3: **1** = baja, **2** = media, **3** = alta
+- `historial_energia` clasifica patrones de los últimos 14 días: TRANSCRIPTORIO (< 20% días con nivel 1), TENDENCIA (20-60%), CRONICO (> 60%)
 - El patrón afecta cómo el optimizador ubica tareas difíciles (`dificultad: "alta"`)
 - Si no se envía historial, se asume TRANSCRIPTORIO (mejor escenario)
 
