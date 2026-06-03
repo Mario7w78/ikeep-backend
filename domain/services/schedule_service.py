@@ -85,13 +85,8 @@ class ScheduleOptimizer(AbstractSchedulerService):
         # Restricciones blandas
         objective_terms: list[int] = []
 
-<<<<<<< Updated upstream
-        if solicitud.tareas_pendientes:
-            self._rb_01(model, ctx, state, objective_terms, patron)
-=======
         if solicitud.actividades_optimizables:
-            self._rb_01(model, ctx, state, objective_terms)
->>>>>>> Stashed changes
+            self._rb_01(model, ctx, state, objective_terms, patron)
             self._rb_02(model, ctx, state, objective_terms)
             self._rb_03(model, ctx, state, objective_terms)
             self._rb_04(model, ctx, state, objective_terms)
@@ -253,7 +248,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
             # Hard constraint: max 1 ALTA task per day
             for dia in range(7):
                 alta_ps = [
-                    v["p"]
+                    info["vars"][dia]["p"]
                     for tid, info in state["flex"].items()
                     if info["dificultad"] == Dificultad.ALTA and dia in info["vars"]
                 ]

@@ -129,25 +129,16 @@ def test_cronico_alta_penalty_higher_than_media():
 
     # The terms list contains penalty variables for each task.
     # ALTA uses v["s"] * w * 2, non-ALTA uses info["dur"] * w.
-    # Since we gave both tasks the same duration and same day,
-    # the ALTA penalty variable should be higher.
-    assert len(terms) >= 2, "Expected at least 2 penalty terms"
+    # Each task has 1 day, so 1 term per task = 2 terms total.
+    assert len(terms) == 2, f"Expected 2 penalty terms, got {len(terms)}"
 
-    # We can't directly compare variable values (they depend on solver assignment),
-    # but we know the model was built with higher coefficients for ALTA.
-    # The terms are ordered by task iteration, so t0 (ALTA) is first two,
-    # t1 (MEDIA) is second two.
+    # t0 (ALTA) produces terms[0], t1 (MEDIA) produces terms[1].
     alta_term = terms[0]
-    media_term = terms[2]
+    media_term = terms[1]
 
-    # Get the upper bounds as a proxy
-    # ALTA has max 1440 * w * 2 = 28800, MEDIA has max 1440 * w = 14400
-    # But more directly, the objective minimizes sum, so if the solver can
-    # assign any value, it will pick the lowest possible.
-    # The constraint is: for ALTA, pen == s * w * 2, for MEDIA pen == dur * w
-    # If start time = 0, ALTA penalty = 0, MEDIA penalty = 60*10 = 600
-    # So MEDIA should always have a non-zero penalty while ALTA can be 0.
-    # Let's just verify the model is feasible.
+    # Verify both are valid CP-SAT variables
+    assert alta_term is not None
+    assert media_term is not None
     assert status in (cp_model.OPTIMAL, cp_model.FEASIBLE), (
         f"CRONICO model should be solvable, got status {status}"
     )

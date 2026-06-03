@@ -7,6 +7,12 @@ from schemas.user_context import BloqueSueno as BloqueSuenoDTO
 from schemas.user_context import ContextoUsuario as ContextoDTO
 from schemas.user_context import RegistroEnergia as RegistroEnergiaDTO
 
+from domain.entities.activity import Actividad as ActividadDomain
+from domain.entities.location import Ubicacion as UbicacionDomain
+from domain.entities.travel_time import TiempoTraslado as TiempoTrasladoDomain
+from domain.entities.reschedule_request import SolicitudReplanificacion as SolicitudReplanDomain
+from domain.entities.schedule_response import BloqueTiempo as BloqueTiempoDomain
+from domain.entities.schedule_response import RespuestaHorario as RespuestaDomain
 from domain.entities.user_context import BloqueSueno as BloqueSuenoDomain
 from domain.entities.user_context import ContextoUsuario as ContextoDomain
 from domain.entities.user_context import RegistroEnergia as RegistroEnergiaDomain
