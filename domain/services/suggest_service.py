@@ -7,20 +7,20 @@ class SuggestService:
     def sugerir(
         self,
         tiempo_libre_minutos: int,
-        tareas: list[Actividad],
+        actividades_optimizables: list[Actividad],
     ) -> list[dict]:
         result = []
-        for t in tareas:
+        for t in actividades_optimizables:
             encaja = t.duracion_estimada <= tiempo_libre_minutos
             razon = ""
 
             if encaja:
                 if t.dificultad == Dificultad.ALTA:
-                    razon = "Tarea exigente — requiere bloque de concentración"
+                    razon = "Actividad exigente — requiere bloque de concentración"
                 elif t.prioridad >= 3:
                     razon = "Alta prioridad — recomendada para este espacio"
                 elif t.duracion_estimada <= tiempo_libre_minutos * 0.5:
-                    razon = "Tarea corta — ideal para llenar el bloque"
+                    razon = "Actividad corta — ideal para llenar el bloque"
                 else:
                     razon = "Duración adecuada para el tiempo disponible"
             else:

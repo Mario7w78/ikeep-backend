@@ -28,7 +28,7 @@ class RescheduleService(AbstractRescheduleService):
         )
 
         actividades_fijas: list[Actividad] = []
-        tareas_pendientes: list[Actividad] = []
+        actividades_optimizables: list[Actividad] = []
         seen_flex: set[str] = set()
 
         for b in request.horario_actual.bloques:
@@ -41,24 +41,24 @@ class RescheduleService(AbstractRescheduleService):
                 if b.id_actividad not in seen_flex:
                     seen_flex.add(b.id_actividad)
                     extra = lost if b.id_actividad == affected_id else 0
-                    tareas_pendientes.append(self._to_actividad(b, extra))
+                    actividades_optimizables.append(self._to_actividad(b, extra))
 
         if affected and affected.tipo != TipoActividad.CLASE:
             if affected.id_actividad not in seen_flex:
-                tareas_pendientes.append(
+                actividades_optimizables.append(
                     self._to_actividad(affected, lost)
                 )
 
-        if not tareas_pendientes:
+        if not actividades_optimizables:
             return RespuestaHorario(
                 estado=request.horario_actual.estado,
                 bloques=[b for b in request.horario_actual.bloques if b.id_actividad != affected_id],
-                mensaje="Sin tareas pendientes por replanificar.",
+                mensaje="Sin actividades optimizables por replanificar.",
             )
 
         solicitud = SolicitudHorario(
             actividades_fijas=actividades_fijas,
-            tareas_pendientes=tareas_pendientes,
+            actividades_optimizables=actividades_optimizables,
             contexto_usuario=ContextoUsuario(
                 nivel_energia=ctx.nivel_energia,
                 horario_inicio=ctx.horario_inicio,

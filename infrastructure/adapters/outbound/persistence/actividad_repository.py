@@ -19,7 +19,7 @@ class SQLAlchemyActividadRepository(ActividadRepositoryPort):
         )
         return [_model_to_domain(m) for m in models]
 
-    def get_tareas_pendientes(self) -> list[Actividad]:
+    def get_actividades_optimizables(self) -> list[Actividad]:
         models = (
             self.db.query(ActividadModel)
             .filter(ActividadModel.tipo.in_([TipoActividad.TRABAJO, TipoActividad.TAREA]))

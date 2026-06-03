@@ -110,7 +110,7 @@ ikeep-backend/
     ├── schedule_request.py        # SolicitudHorario
     ├── schedule_response.py       # BloqueTiempo, RespuestaHorario
     ├── reschedule_request.py      # SolicitudReplanificacion
-    └── suggest_task.py            # SugerirTareaRequest, SugerenciaTarea, SugerirTareaResponse
+    └── suggest_actividad_optimizable.py  # SugerirActividadOptimizableRequest, SugerenciaActividadOptimizable, SugerirActividadOptimizableResponse
 ```
 
 ---
@@ -293,18 +293,19 @@ RespuestaHorario
 
 **Archivo:** `domain/services/suggest_service.py`
 
-Algoritmo heurístico liviano (sin OR-Tools) que sugiere qué tareas pendientes encajan en un bloque de tiempo libre.
+Algoritmo heurístico liviano (sin OR-Tools) que sugiere qué actividades optimizables encajan en un bloque de tiempo libre.
 
 **Flujo paso a paso:**
 
 ```
-SugerirTareaRequest
+SugerirActividadOptimizableRequest
   • tiempo_libre_minutos: int
-  • tareas_pendientes: list[Actividad]
+  • actividades_optimizables: list[Actividad]
        │
        ▼
 ┌──────────────────────────────┐
-│ Por cada tarea pendiente:    │
+│ Por cada actividad           │
+│ optimizable:                 │
 │                              │
 │ ¿duración <= tiempo_libre?   │
 │   ├── Sí → encaja=True       │
@@ -327,8 +328,8 @@ SugerirTareaRequest
 └──────────────────────────────┘
        │
        ▼
-SugerirTareaResponse
-  • sugerencias: list[SugerenciaTarea]
+SugerirActividadOptimizableResponse
+  • sugerencias: list[SugerenciaActividadOptimizable]
 ```
 
 ---
@@ -349,7 +350,7 @@ curl http://localhost:8000/health
 
 ### POST /api/v1/horarios/generar
 
-Genera un horario optimizado a partir de actividades fijas, tareas pendientes, ubicaciones y contexto del usuario.
+Genera un horario optimizado a partir de actividades fijas, actividades optimizables, ubicaciones y contexto del usuario.
 
 **Request:**
 ```json
@@ -368,7 +369,7 @@ Genera un horario optimizado a partir de actividades fijas, tareas pendientes, u
       "dificultad": "media"
     }
   ],
-  "tareas_pendientes": [
+  "actividades_optimizables": [
     {
       "id": "prog1",
       "nombre": "Programacion",
@@ -447,7 +448,7 @@ Genera un horario optimizado a partir de actividades fijas, tareas pendientes, u
 **Response (409 DESCONOCIDO — timeout):**
 ```json
 {
-  "detail": "El optimizador no encontró solución en 5s. Reduce la cantidad de tareas o aumenta el tiempo límite."
+  "detail": "El optimizador no encontró solución en 5s. Reduce la cantidad de actividades o aumenta el tiempo límite."
 }
 ```
 
@@ -481,15 +482,15 @@ Re-planifica el horario cuando una actividad se ve afectada (se elimina y su tie
 
 ---
 
-### POST /schedule/suggest-task
+### POST /schedule/suggest-actividades-optimizables
 
-Sugiere qué tareas pendientes encajan en un bloque de tiempo libre.
+Sugiere qué actividades optimizables encajan en un bloque de tiempo libre.
 
 **Request:**
 ```json
 {
   "tiempo_libre_minutos": 90,
-  "tareas_pendientes": [
+  "actividades_optimizables": [
     {"id": "t1", "nombre": "Proyecto Final", "tipo": "trabajo", "dia": 0, "hora_inicio": 0, "hora_fin": 0, "prioridad": 1, "duracion_estimada": 180, "dificultad": "alta"},
     {"id": "t2", "nombre": "Leer Capitulo 3", "tipo": "tarea", "dia": 0, "hora_inicio": 0, "hora_fin": 0, "prioridad": 3, "duracion_estimada": 45, "dificultad": "baja"},
     {"id": "t3", "nombre": "Ejercicios Algebra", "tipo": "trabajo", "dia": 0, "hora_inicio": 0, "hora_fin": 0, "prioridad": 2, "duracion_estimada": 60, "dificultad": "media"}
@@ -510,7 +511,7 @@ Sugiere qué tareas pendientes encajan en un bloque de tiempo libre.
       "dificultad": "baja",
       "prioridad": 3,
       "encaja": true,
-      "razon": "Tarea corta, ideal para aprovechar 90 min libres."
+      "razon": "Actividad corta — ideal para llenar el bloque"
     },
     {
       "id_actividad": "t3",
@@ -520,7 +521,7 @@ Sugiere qué tareas pendientes encajan en un bloque de tiempo libre.
       "dificultad": "media",
       "prioridad": 2,
       "encaja": true,
-      "razon": "Duración adecuada para el tiempo disponible (60 ≤ 90 min)."
+      "razon": "Duración adecuada para el tiempo disponible"
     },
     {
       "id_actividad": "t1",
@@ -530,7 +531,7 @@ Sugiere qué tareas pendientes encajan en un bloque de tiempo libre.
       "dificultad": "alta",
       "prioridad": 1,
       "encaja": false,
-      "razon": "Necesita 180 min, pero solo hay 90 min disponibles."
+      "razon": "Necesita 180 min, disponible 90 min"
     }
   ]
 }
@@ -560,15 +561,15 @@ Se penalizan con pesos configurables. El solver minimiza la suma total de penali
 
 | ID | Nombre | Peso default | Descripción |
 |---|---|---|---|
-| **RB-01** | Energía vs Dificultad | 10 | Penaliza tareas difíciles (`ALTA`) en días con energía baja (< 4) |
-| **RB-02** | Concentración | 8 | Penaliza si una tarea consume ≥ 80% del horario activo de un día |
-| **RB-03** | Preferencia horaria | 6 | Penaliza tareas fuera del horario "ideal" del usuario (si está definido) |
+| **RB-01** | Energía vs Dificultad | 10 | Penaliza actividades difíciles (`ALTA`) en días con energía baja (< 4) |
+| **RB-02** | Concentración | 8 | Penaliza si una actividad consume ≥ 80% del horario activo de un día |
+| **RB-03** | Preferencia horaria | 6 | Penaliza actividades fuera del horario "ideal" del usuario (si está definido) |
 | **RB-04** | Tiempo muerto | 4 | Penaliza gaps largos (> 60 min) entre actividades consecutivas |
-| **RB-05** | Post-esfuerzo | 10 | Penaliza tareas exigentes después de turnos ≥ 4h continuas |
-| **RB-06** | Desajuste duración | 5 | Penaliza si una tarea no llena adecuadamente el bloque asignado |
+| **RB-05** | Post-esfuerzo | 10 | Penaliza actividades exigentes después de turnos ≥ 4h continuas |
+| **RB-06** | Desajuste duración | 5 | Penaliza si una actividad no llena adecuadamente el bloque asignado |
 | **RB-08** | Carga consecutiva | 3 | Penaliza diferencias grandes de carga entre días consecutivos |
 | **RB-09** | Cambios de ubicación | 7 | Penaliza múltiples cambios de ubicación en un mismo día |
-| **RB-10** | Fecha límite | 9 | Penaliza postergar tareas con `fecha_limite` cercana |
+| **RB-10** | Fecha límite | 9 | Penaliza postergar actividades con `fecha_limite` cercana |
 
 ---
 
@@ -591,12 +592,12 @@ Error: Actividades fijas solapadas el día 1:
 
 ### 2. Duración vs capacidad diaria
 
-**Método:** `_validate_task_duration()`
+**Método:** `_validate_activity_duration()`
 
-Verifica que ninguna tarea tenga duración mayor al horario activo disponible por día.
+Verifica que ninguna actividad optimizable tenga duración mayor al horario activo disponible por día.
 
 ```
-Error: La tarea 'Proyecto' dura 9999 min,
+Error: La actividad 'Proyecto' dura 9999 min,
        pero el horario disponible es de solo 660 min/día
 ```
 
@@ -609,7 +610,7 @@ Si el solver retorna `INFEASIBLE`, se devuelve un mensaje descriptivo:
 ```
 HTTP 409: No se encontró una solución con las restricciones actuales.
           Verifica que las actividades fijas no solapen los bloques de sueño,
-          que haya tiempo disponible para cada tarea,
+          que haya tiempo disponible para cada actividad,
           y que el horario activo tenga suficiente capacidad.
 ```
 
@@ -619,7 +620,7 @@ Si el solver retorna `UNKNOWN` (excedió `max_time_in_seconds`):
 
 ```
 HTTP 409: El optimizador no encontró solución en 5s.
-          Reduce la cantidad de tareas o aumenta el tiempo límite.
+          Reduce la cantidad de actividades o aumenta el tiempo límite.
 ```
 
 El timeout se configura via `.env`:

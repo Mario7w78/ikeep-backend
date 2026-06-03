@@ -73,7 +73,7 @@ def solicitud_to_domain(dto: SolicitudDTO) -> ActividadDomain:
 
     return SolicitudDomain(
         actividades_fijas=[actividad_to_domain(a) for a in dto.actividades_fijas],
-        tareas_pendientes=[actividad_to_domain(a) for a in dto.tareas_pendientes],
+        actividades_optimizables=[actividad_to_domain(a) for a in dto.actividades_optimizables],
         ubicaciones=[ubicacion_to_domain(u) for u in dto.ubicaciones],
         tiempos_traslado=[tiempo_traslado_to_domain(t) for t in dto.tiempos_traslado],
         contexto_usuario=contexto_to_domain(dto.contexto_usuario),

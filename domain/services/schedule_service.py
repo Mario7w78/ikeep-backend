@@ -44,7 +44,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
 
     def generar(self, solicitud: SolicitudHorario) -> RespuestaHorario:
         self._validate_fixed_overlaps(solicitud.actividades_fijas)
-        self._validate_task_duration(solicitud.tareas_pendientes, solicitud.contexto_usuario)
+        self._validate_activity_duration(solicitud.actividades_optimizables, solicitud.contexto_usuario)
 
         model = cp_model.CpModel()
         ctx = solicitud.contexto_usuario
@@ -72,7 +72,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
         self._add_rest_blocks(model, ctx, state)
 
         # Variables de decisión para tareas flexibles
-        for act in solicitud.tareas_pendientes:
+        for act in solicitud.actividades_optimizables:
             self._add_flexible_task(model, act, ctx, state)
 
         # RD-01: no solapamiento
@@ -85,8 +85,13 @@ class ScheduleOptimizer(AbstractSchedulerService):
         # Restricciones blandas
         objective_terms: list[int] = []
 
+<<<<<<< Updated upstream
         if solicitud.tareas_pendientes:
             self._rb_01(model, ctx, state, objective_terms, patron)
+=======
+        if solicitud.actividades_optimizables:
+            self._rb_01(model, ctx, state, objective_terms)
+>>>>>>> Stashed changes
             self._rb_02(model, ctx, state, objective_terms)
             self._rb_03(model, ctx, state, objective_terms)
             self._rb_04(model, ctx, state, objective_terms)
@@ -465,12 +470,12 @@ class ScheduleOptimizer(AbstractSchedulerService):
                     )
 
     @staticmethod
-    def _validate_task_duration(tareas_pendientes, ctx):
+    def _validate_activity_duration(actividades_optimizables, ctx):
         max_daily = ctx.horario_fin - ctx.horario_inicio
-        for act in tareas_pendientes:
+        for act in actividades_optimizables:
             if act.duracion_estimada > max_daily:
                 raise ValueError(
-                    f"La tarea '{act.nombre}' dura {act.duracion_estimada} min, "
+                    f"La actividad '{act.nombre}' dura {act.duracion_estimada} min, "
                     f"pero el horario disponible es de solo {max_daily} min/día"
                 )
 

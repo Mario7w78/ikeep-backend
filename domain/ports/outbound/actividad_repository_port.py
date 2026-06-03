@@ -11,7 +11,7 @@ class ActividadRepositoryPort(ABC):
         pass
 
     @abstractmethod
-    def get_tareas_pendientes(self) -> list[Actividad]:
+    def get_actividades_optimizables(self) -> list[Actividad]:
         pass
 
     @abstractmethod
