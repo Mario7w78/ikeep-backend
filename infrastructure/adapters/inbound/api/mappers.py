@@ -31,6 +31,8 @@ def actividad_to_domain(dto: ActividadDTO) -> ActividadDomain:
         duracion_estimada=dto.duracion_estimada,
         fecha_limite=dto.fecha_limite,
         dificultad=dto.dificultad,
+        hora_preferida_inicio=dto.hora_preferida_inicio,
+        hora_preferida_fin=dto.hora_preferida_fin,
     )
 
 

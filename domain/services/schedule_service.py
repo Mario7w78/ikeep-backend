@@ -170,6 +170,10 @@ class ScheduleOptimizer(AbstractSchedulerService):
         dur = act.duracion_estimada
         all_p: list = []
 
+        # Ventana de tiempo efectiva: intersección del horario del usuario con la preferencia de la tarea
+        eff_start = max(ctx.horario_inicio, act.hora_preferida_inicio) if act.hora_preferida_inicio is not None else ctx.horario_inicio
+        eff_end = min(ctx.horario_fin, act.hora_preferida_fin) if act.hora_preferida_fin is not None else ctx.horario_fin
+
         info = {
             "nombre": act.nombre,
             "tipo": act.tipo,
@@ -184,8 +188,8 @@ class ScheduleOptimizer(AbstractSchedulerService):
 
         for dia in days:
             p = model.NewBoolVar(f"p_{act.id}_d{dia}")
-            s = model.NewIntVar(ctx.horario_inicio, ctx.horario_fin - dur, f"s_{act.id}_d{dia}")
-            e = model.NewIntVar(ctx.horario_inicio + dur, ctx.horario_fin, f"e_{act.id}_d{dia}")
+            s = model.NewIntVar(eff_start, eff_end - dur, f"s_{act.id}_d{dia}")
+            e = model.NewIntVar(eff_start + dur, eff_end, f"e_{act.id}_d{dia}")
             iv = model.NewOptionalIntervalVar(s, dur, e, p, f"iv_{act.id}_d{dia}")
             state["intervals"][dia].append(iv)
             info["vars"][dia] = {"p": p, "s": s, "e": e}
@@ -468,11 +472,21 @@ class ScheduleOptimizer(AbstractSchedulerService):
     def _validate_activity_duration(actividades_optimizables, ctx):
         max_daily = ctx.horario_fin - ctx.horario_inicio
         for act in actividades_optimizables:
+            # Validar contra el horario global del usuario
             if act.duracion_estimada > max_daily:
                 raise ValueError(
                     f"La actividad '{act.nombre}' dura {act.duracion_estimada} min, "
                     f"pero el horario disponible es de solo {max_daily} min/día"
                 )
+            # Validar contra la ventana preferida de la tarea
+            if act.hora_preferida_inicio is not None and act.hora_preferida_fin is not None:
+                window = act.hora_preferida_fin - act.hora_preferida_inicio
+                if act.duracion_estimada > window:
+                    raise ValueError(
+                        f"La actividad '{act.nombre}' dura {act.duracion_estimada} min, "
+                        f"pero su ventana preferida ({act.hora_preferida_inicio}–{act.hora_preferida_fin}) "
+                        f"tiene solo {window} min de espacio"
+                    )
 
     def _build_response(self, solver, raw_status, state) -> RespuestaHorario:
         _map = {

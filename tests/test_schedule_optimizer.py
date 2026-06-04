@@ -27,6 +27,8 @@ def _make_task(
     hora_inicio: int = 0,
     hora_fin: int = 0,
     ubicacion_id: str | None = None,
+    hora_preferida_inicio: int | None = None,
+    hora_preferida_fin: int | None = None,
 ) -> Actividad:
     if hora_inicio == 0 and hora_fin == 0:
         hora_inicio = 480  # 08:00
@@ -42,6 +44,8 @@ def _make_task(
         prioridad=prioridad,
         duracion_estimada=duracion,
         dificultad=dificultad,
+        hora_preferida_inicio=hora_preferida_inicio,
+        hora_preferida_fin=hora_preferida_fin,
     )
 
 
@@ -340,3 +344,130 @@ class TestEdgeCases:
         optimizer = ScheduleOptimizer(timeout_seconds=5, weights=weights)
         result = optimizer.generar(solicitud)
         assert result.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE)
+
+
+# ─── Preferred hours constraint ─────────────────────────────────
+
+
+class TestPreferredHours:
+    def test_task_respects_preferred_window(self):
+        """Task with preferred hours should be scheduled within that window."""
+        task = _make_task(
+            "t1", duracion=60,
+            hora_preferida_inicio=540,   # 09:00
+            hora_preferida_fin=720,      # 12:00
+        )
+        solicitud = SolicitudHorario(
+            actividades_fijas=[],
+            actividades_optimizables=[task],
+            contexto_usuario=_make_ctx(),
+        )
+        optimizer = ScheduleOptimizer(timeout_seconds=5)
+        result = optimizer.generar(solicitud)
+
+        assert result.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE)
+        block = next(b for b in result.bloques if b.id_actividad == "t1")
+        assert block.hora_inicio >= 540, f"Started before window: {block.hora_inicio}"
+        assert block.hora_fin <= 720, f"Ended after window: {block.hora_fin}"
+
+    def test_preferred_window_intersects_user_schedule(self):
+        """Preferred window is clamped to user's active hours."""
+        # User schedule: 480–1200 (08:00–20:00)
+        # Task preferred: 600–900 (10:00–15:00) — fully inside, should work
+        task = _make_task(
+            "t1", duracion=60,
+            hora_preferida_inicio=600,
+            hora_preferida_fin=900,
+        )
+        solicitud = SolicitudHorario(
+            actividades_fijas=[],
+            actividades_optimizables=[task],
+            contexto_usuario=_make_ctx(horario_inicio=480, horario_fin=1200),
+        )
+        optimizer = ScheduleOptimizer(timeout_seconds=5)
+        result = optimizer.generar(solicitud)
+
+        assert result.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE)
+        block = next(b for b in result.bloques if b.id_actividad == "t1")
+        assert 600 <= block.hora_inicio < block.hora_fin <= 900
+
+    def test_preferred_window_partial_overlap(self):
+        """Preferred window that partially overlaps user schedule still works."""
+        # User: 480–780 (08:00–13:00)
+        # Task preferred: 600–900 (10:00–15:00)
+        # Effective window: 600–780 (10:00–13:00) — 180 min, task is 60 min
+        task = _make_task(
+            "t1", duracion=60,
+            hora_preferida_inicio=600,
+            hora_preferida_fin=900,
+        )
+        solicitud = SolicitudHorario(
+            actividades_fijas=[],
+            actividades_optimizables=[task],
+            contexto_usuario=_make_ctx(horario_inicio=480, horario_fin=780),
+        )
+        optimizer = ScheduleOptimizer(timeout_seconds=5)
+        result = optimizer.generar(solicitud)
+
+        assert result.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE)
+        block = next(b for b in result.bloques if b.id_actividad == "t1")
+        assert block.hora_inicio >= 600
+        assert block.hora_fin <= 780
+
+    def test_no_preferred_uses_full_schedule(self):
+        """Task without preferred hours uses the full user schedule."""
+        task = _make_task("t1", duracion=60)
+        solicitud = SolicitudHorario(
+            actividades_fijas=[],
+            actividades_optimizables=[task],
+            contexto_usuario=_make_ctx(horario_inicio=480, horario_fin=1200),
+        )
+        optimizer = ScheduleOptimizer(timeout_seconds=5)
+        result = optimizer.generar(solicitud)
+
+        assert result.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE)
+        block = next(b for b in result.bloques if b.id_actividad == "t1")
+        assert block.hora_inicio >= 480
+        assert block.hora_fin <= 1200
+
+    def test_preferred_window_too_small_raises(self):
+        """Task duration exceeding preferred window should raise ValueError."""
+        task = _make_task(
+            "t1", duracion=120,
+            hora_preferida_inicio=540,
+            hora_preferida_fin=600,  # only 60 min window
+        )
+        solicitud = SolicitudHorario(
+            actividades_fijas=[],
+            actividades_optimizables=[task],
+            contexto_usuario=_make_ctx(),
+        )
+        optimizer = ScheduleOptimizer(timeout_seconds=5)
+        with pytest.raises(ValueError, match="ventana preferida"):
+            optimizer.generar(solicitud)
+
+    def test_multiple_tasks_different_windows(self):
+        """Tasks with different preferred windows are each constrained independently."""
+        t1 = _make_task(
+            "t1", duracion=60,
+            hora_preferida_inicio=480,   # 08:00–10:00
+            hora_preferida_fin=600,
+        )
+        t2 = _make_task(
+            "t2", duracion=60,
+            hora_preferida_inicio=720,   # 12:00–14:00
+            hora_preferida_fin=840,
+        )
+        solicitud = SolicitudHorario(
+            actividades_fijas=[],
+            actividades_optimizables=[t1, t2],
+            contexto_usuario=_make_ctx(),
+        )
+        optimizer = ScheduleOptimizer(timeout_seconds=5)
+        result = optimizer.generar(solicitud)
+
+        assert result.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE)
+        b1 = next(b for b in result.bloques if b.id_actividad == "t1")
+        b2 = next(b for b in result.bloques if b.id_actividad == "t2")
+        assert b1.hora_inicio >= 480 and b1.hora_fin <= 600
+        assert b2.hora_inicio >= 720 and b2.hora_fin <= 840
