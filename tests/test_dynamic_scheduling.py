@@ -7,10 +7,12 @@ Covers three additive features:
 """
 
 import pytest
+from pydantic import ValidationError
 
 from domain.entities.activity import Actividad
 from domain.entities.enums import Dificultad, EstadoSolucion, PatronEnergia, TipoActividad
 from domain.entities.schedule_request import SolicitudHorario
+from domain.entities.schedule_response import RespuestaHorario
 from domain.entities.user_context import BloqueSueno, ContextoUsuario
 from domain.services.schedule_service import PenaltyWeights, ScheduleOptimizer
 
@@ -877,6 +879,129 @@ class TestAnchorTasks:
 # ═══════════════════════════════════════════════════════════════
 
 
+class TestRollingWeek:
+    """F8: Rolling week — dia_inicio / dias_totales allow scheduling
+    over any window, not just Monday(0)-Sunday(6)."""
+
+    def test_default_week_monday_to_sunday(self):
+        """Default dia_inicio=0, dias_totales=7 = Monday to Sunday."""
+        ctx = ContextoUsuario(nivel_energia=3, horario_inicio=480, horario_fin=1200)
+        tareas = [
+            Actividad(
+                id="t1", nombre="Task 1", tipo=TipoActividad.TAREA,
+                duracion_estimada=60, dificultad=Dificultad.MEDIA,
+            ),
+        ]
+        request = SolicitudHorario(
+            actividades_fijas=[],
+            tareas_pendientes=tareas,
+            contexto_usuario=ctx,
+        )
+        response = ScheduleOptimizer(timeout_seconds=5).generar(request)
+        assert response.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE)
+        assert len(response.bloques) >= 1
+
+    def test_mid_week_window(self):
+        """Start on Wednesday (3) for 3 days (Wed-Fri)."""
+        fijas = [
+            Actividad(
+                id="f1", nombre="Fixed", tipo=TipoActividad.CLASE,
+                dia=3, hora_inicio=600, hora_fin=660,
+            ),
+        ]
+        ctx = ContextoUsuario(nivel_energia=3, horario_inicio=480, horario_fin=1200)
+        tareas = [
+            Actividad(
+                id="t1", nombre="Flex", tipo=TipoActividad.TAREA,
+                duracion_estimada=60, dificultad=Dificultad.MEDIA,
+            ),
+        ]
+        request = SolicitudHorario(
+            actividades_fijas=fijas,
+            tareas_pendientes=tareas,
+            contexto_usuario=ctx,
+            dia_inicio=3, dias_totales=3,
+        )
+        response = ScheduleOptimizer(timeout_seconds=5).generar(request)
+        assert response.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE)
+
+    def test_rolling_window_validation(self):
+        """Invalid rolling window parameters should raise."""
+        ctx = ContextoUsuario()
+        with pytest.raises((ValueError, ValidationError)):
+            # dias_totales = 0
+            request = SolicitudHorario(
+                actividades_fijas=[], tareas_pendientes=[], contexto_usuario=ctx,
+                dia_inicio=0, dias_totales=0,
+            )
+            ScheduleOptimizer(timeout_seconds=5).generar(request)
+
+
+class TestPerDayHours:
+    """F7: Per-day active hours — different horario_inicio/fin per day."""
+
+    def test_backward_compat_single_int(self):
+        """Single int horario_inicio/fin should expand to all days."""
+        ctx = ContextoUsuario(nivel_energia=3, horario_inicio=480, horario_fin=1200)
+        tareas = [
+            Actividad(
+                id="t1", nombre="Task", tipo=TipoActividad.TAREA,
+                duracion_estimada=60, dificultad=Dificultad.MEDIA,
+            ),
+        ]
+        request = SolicitudHorario(
+            actividades_fijas=[],
+            tareas_pendientes=tareas,
+            contexto_usuario=ctx,
+        )
+        response = ScheduleOptimizer(timeout_seconds=5).generar(request)
+        assert response.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE)
+        # After construction, it should be a list
+        assert isinstance(response, RespuestaHorario)
+
+    def test_varied_hours_per_day(self):
+        """Different hours for different days — narrow window on weekends."""
+        ctx = ContextoUsuario(
+            nivel_energia=3,
+            horario_inicio=[480, 480, 480, 480, 480, 600, 600],  # 8AM weekdays, 10AM weekends
+            horario_fin=[1200, 1200, 1200, 1200, 1200, 1080, 1080],   # 8PM weekdays, 6PM weekends
+        )
+        tareas = [
+            Actividad(
+                id="t1", nombre="Task", tipo=TipoActividad.TAREA,
+                duracion_estimada=60, dificultad=Dificultad.MEDIA,
+            ),
+        ]
+        request = SolicitudHorario(
+            actividades_fijas=[],
+            tareas_pendientes=tareas,
+            contexto_usuario=ctx,
+        )
+        response = ScheduleOptimizer(timeout_seconds=5).generar(request)
+        assert response.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE)
+
+    def test_list_length_validation(self):
+        """horario_inicio list length must match dias_totales."""
+        ctx = ContextoUsuario(
+            nivel_energia=3,
+            horario_inicio=[480, 480, 480],  # only 3 elements
+            horario_fin=[1200, 1200, 1200],
+        )
+        tareas = [
+            Actividad(
+                id="t1", nombre="Task", tipo=TipoActividad.TAREA,
+                duracion_estimada=60, dificultad=Dificultad.MEDIA,
+            ),
+        ]
+        with pytest.raises((ValueError, ValidationError, TypeError)):
+            request = SolicitudHorario(
+                actividades_fijas=[],
+                tareas_pendientes=tareas,
+                contexto_usuario=ctx,
+            )
+            ScheduleOptimizer(timeout_seconds=5).generar(request)
+
+
 class TestPartialAssignment:
     """F9: the solver may omit tasks when the problem is infeasible,
     returning a partial schedule instead of INFEASIBLE."""
@@ -929,7 +1054,7 @@ class TestPartialAssignment:
             tareas_pendientes=tareas,
             contexto_usuario=ctx,
         )
-        response = ScheduleOptimizer(timeout_seconds=15, weights=PenaltyWeights(omission=100)).generar(request)
+        response = ScheduleOptimizer(timeout_seconds=15, weights=PenaltyWeights(omitido=100)).generar(request)
         assert response.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE)
         # 600 min total > 420 min capacity → at least some must be omitted
         assert len(response.tareas_omitidas) >= 1
@@ -956,7 +1081,7 @@ class TestPartialAssignment:
         )
         response = ScheduleOptimizer(
             timeout_seconds=10,
-            weights=PenaltyWeights(omission=100),
+            weights=PenaltyWeights(omitido=100),
         ).generar(request)
         assert response.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE)
         # With 10 tasks and only 7*120=840 min capacity, at least some must be omitted
@@ -967,7 +1092,7 @@ class TestPartialAssignment:
         assert omitted_set.isdisjoint(scheduled_names)  # no overlap
 
     def test_zero_omission_weight_disables_penalty(self):
-        """With omission=0, the solver doesn't care about omissions
+        """With omitido=0, the solver doesn't care about omissions
         and may omit tasks even when they could fit."""
         ctx = ContextoUsuario(
             nivel_energia=3,
@@ -986,11 +1111,11 @@ class TestPartialAssignment:
             tareas_pendientes=tareas,
             contexto_usuario=ctx,
         )
-        # With omission=0, solver may freely omit
+        # With omitido=0, solver may freely omit
         response = ScheduleOptimizer(
             timeout_seconds=5,
-            weights=PenaltyWeights(omission=0),
+            weights=PenaltyWeights(omitido=0),
         ).generar(request)
         assert response.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE)
-        # With omission=0, the solver may or may not schedule — the point is it CAN omit
+        # With omitido=0, the solver may or may not schedule — the point is it CAN omit
         # We just verify no crash and valid state

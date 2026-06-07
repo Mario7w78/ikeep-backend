@@ -33,7 +33,7 @@ class PenaltyWeights:
     rb_09: int = 7    # múltiples cambios de ubicación
     rb_10: int = 9    # postergar tareas con fecha límite cercana
     rb_priority: int = 0  # tareas de baja prioridad en días tardíos
-    omission: int = 100000  # F9: penalización por omitir una tarea — alto para que solo ocurra cuando sea realmente inviable
+    omitido: int = 100000  # F9: penalización por omitir una tarea (× duración). Default alto = solo omite si es realmente inviable
 
 
 MIN_REST_BLOCK_MINUTES = 30
@@ -57,9 +57,24 @@ class ScheduleOptimizer(AbstractSchedulerService):
         ctx = solicitud.contexto_usuario
         dia_inicio = solicitud.dia_inicio
         dias_totales = solicitud.dias_totales
+
+        # F7: validate horario_inicio/fin list has enough entries for dias_totales
+        if isinstance(ctx.horario_inicio, list) and len(ctx.horario_inicio) < dia_inicio + dias_totales:
+            raise ValueError(
+                f"horario_inicio tiene {len(ctx.horario_inicio)} elementos, "
+                f"pero se necesitan al menos {dia_inicio + dias_totales} "
+                f"(dia_inicio={dia_inicio} + dias_totales={dias_totales})."
+            )
+        if isinstance(ctx.horario_fin, list) and len(ctx.horario_fin) < dia_inicio + dias_totales:
+            raise ValueError(
+                f"horario_fin tiene {len(ctx.horario_fin)} elementos, "
+                f"pero se necesitan al menos {dia_inicio + dias_totales} "
+                f"(dia_inicio={dia_inicio} + dias_totales={dias_totales})."
+            )
+
         self._validate_fixed_overlaps(solicitud.actividades_fijas)
         self._validate_task_duration(solicitud.tareas_pendientes, ctx, dia_inicio, dias_totales)
-        self._validate_consistency(solicitud.actividades_fijas, ctx.bloques_sueno, solicitud.tareas_pendientes, ctx, dia_inicio, dias_totales)
+        self._validate_consistency(solicitud.actividades_fijas, ctx.bloques_sueno, solicitud.tareas_pendientes, ctx, dia_inicio, dias_totales, omitido_weight=self.weights.omitido)
 
         model = cp_model.CpModel()
 
@@ -244,6 +259,18 @@ class ScheduleOptimizer(AbstractSchedulerService):
                 days = [d for d in days if d in permitted]
                 if not days:
                     raise ValueError("No valid days after filtering by dias_permitidos")
+
+        # F8: intersect with rolling window
+        dia_inicio = state.get("meta", {}).get("dia_inicio", 0)
+        dias_totales = state.get("meta", {}).get("dias_totales", 7)
+        window = set(range(dia_inicio, dia_inicio + dias_totales))
+        days = [d for d in days if d in window]
+        if not days:
+            raise ValueError(
+                f"La tarea '{act.nombre}' no tiene días dentro de la ventana de "
+                f"programación ({dia_inicio}–{dia_inicio + dias_totales - 1})."
+            )
+
         dur = act.duracion_estimada
         all_p: list = []
 
@@ -571,17 +598,19 @@ class ScheduleOptimizer(AbstractSchedulerService):
 
         Cada tarea flexible tiene una variable 'omit'. Si weight > 0,
         se añade una penalización al objetivo por cada tarea omitida,
-        incentivando al solver a programar la mayor cantidad posible.
+        proporcional a su duración, incentivando al solver a programar
+        la mayor cantidad posible (y las más largas primero).
         """
-        w = self.weights.omission
+        w = self.weights.omitido
         if w == 0:
             return
         for tid, info in state["flex"].items():
             omit = info.get("omit")
             if omit is None:
                 continue
-            pen = model.NewIntVar(0, w, f"rb_omit_{tid}")
-            model.Add(pen == w).OnlyEnforceIf(omit)
+            max_pen = w * info["dur"]
+            pen = model.NewIntVar(0, max_pen, f"rb_omit_{tid}")
+            model.Add(pen == max_pen).OnlyEnforceIf(omit)
             model.Add(pen == 0).OnlyEnforceIf(omit.Not())
             terms.append(pen)
 
@@ -645,6 +674,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
         ctx,
         dia_inicio: int = 0,
         dias_totales: int = 7,
+        omitido_weight: int = 0,
     ) -> None:
         """Pre-solve validation: check constraints before building CP-SAT model.
 
@@ -728,8 +758,21 @@ class ScheduleOptimizer(AbstractSchedulerService):
             for d in range(dia_inicio, dia_inicio + dias_totales)
         ]
 
-        # F9: la capacidad insuficiente ya no es un error — el solver omitirá tareas
-        # Se mantiene el cómputo de diagnóstico por si se necesita en el futuro.
+        if total_flex > sum(available_per_day):
+            if omitido_weight > 0:
+                import logging
+                logging.warning(
+                    f"Las tareas pendientes requieren {total_flex} min totales, "
+                    f"pero solo hay {sum(available_per_day)} min disponibles. "
+                    "El solver omitirá tareas si es necesario."
+                )
+            else:
+                raise ValueError(
+                    f"Las tareas pendientes requieren {total_flex} min totales, "
+                    f"pero solo hay {sum(available_per_day)} min disponibles "
+                    f"entre los días activos (considerando sueño y actividades fijas). "
+                    f"Reduce las tareas o amplía el horario disponible."
+                )
 
     def _build_response(self, solver, raw_status, state) -> RespuestaHorario:
         _map = {

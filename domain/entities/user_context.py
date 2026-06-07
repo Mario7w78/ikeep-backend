@@ -28,7 +28,13 @@ class ContextoUsuario:
     patron_energia_manual: PatronEnergia | None = None
 
     def __post_init__(self):
-        """Normalize horario_inicio/fin to list[int] for backward compatibility."""
+        """Normalize horario_inicio/fin to list[int] for backward compatibility.
+
+        Note: defaults to 7-day length (the standard week). When used within
+        a SolicitudHorario with a different dias_totales, the schema-level
+        validator expands single int → list[dias_totales] BEFORE the domain
+        entity is constructed, so this only applies for standalone use.
+        """
         if isinstance(self.horario_inicio, int):
             self.horario_inicio = [self.horario_inicio] * 7
         if isinstance(self.horario_fin, int):
