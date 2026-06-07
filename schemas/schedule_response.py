@@ -18,3 +18,4 @@ class RespuestaHorario(BaseModel):
     bloques: list[BloqueTiempo] = []
     mensaje: str = ""
     recomendaciones: list[str] = []
+    tareas_omitidas: list[str] = []

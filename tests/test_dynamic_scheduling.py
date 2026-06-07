@@ -12,7 +12,7 @@ from domain.entities.activity import Actividad
 from domain.entities.enums import Dificultad, EstadoSolucion, PatronEnergia, TipoActividad
 from domain.entities.schedule_request import SolicitudHorario
 from domain.entities.user_context import BloqueSueno, ContextoUsuario
-from domain.services.schedule_service import ScheduleOptimizer
+from domain.services.schedule_service import PenaltyWeights, ScheduleOptimizer
 
 # ═══════════════════════════════════════════════════════════════
 # Feature 1: Manual Energy Pattern Override
@@ -870,3 +870,127 @@ class TestAnchorTasks:
         flex_blocks = [b for b in response.bloques if b.id_actividad == "t1"]
         assert len(flex_blocks) == 1
         assert flex_blocks[0].dia == 2
+
+
+# ═══════════════════════════════════════════════════════════════
+# Feature 4: Partial Assignment (F9)
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestPartialAssignment:
+    """F9: the solver may omit tasks when the problem is infeasible,
+    returning a partial schedule instead of INFEASIBLE."""
+
+    def test_all_tasks_fit_no_omissions(self):
+        """When all tasks easily fit, no tasks should be omitted."""
+        ctx = ContextoUsuario(
+            nivel_energia=3,
+            horario_inicio=480,
+            horario_fin=1200,  # 7h20m = 440 min per day x 7 days
+        )
+        tareas = [
+            Actividad(
+                id="a1", nombre="Tarea A", tipo=TipoActividad.TAREA,
+                dia=2, duracion_estimada=60, dificultad=Dificultad.MEDIA,
+            ),
+            Actividad(
+                id="a2", nombre="Tarea B", tipo=TipoActividad.TAREA,
+                dia=4, duracion_estimada=90, dificultad=Dificultad.MEDIA,
+            ),
+        ]
+        request = SolicitudHorario(
+            actividades_fijas=[],
+            tareas_pendientes=tareas,
+            contexto_usuario=ctx,
+        )
+        response = ScheduleOptimizer(timeout_seconds=5).generar(request)
+        assert response.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE)
+        assert len(response.tareas_omitidas) == 0
+        assert len(response.bloques) >= 2
+
+    def test_omission_on_overcapacity(self):
+        """When total demand > capacity, the solver should omit some tasks
+        and return OPTIMAL/FEASIBLE instead of INFEASIBLE."""
+        ctx = ContextoUsuario(
+            nivel_energia=3,
+            horario_inicio=480,
+            horario_fin=540,  # only 60 min/day
+        )
+        # 10 tasks × 60 min = 600 min > 7 × 60 = 420 min available
+        tareas = [
+            Actividad(
+                id=f"t{i}", nombre=f"Task {i}", tipo=TipoActividad.TAREA,
+                duracion_estimada=60, dificultad=Dificultad.MEDIA,
+            )
+            for i in range(10)
+        ]
+        request = SolicitudHorario(
+            actividades_fijas=[],
+            tareas_pendientes=tareas,
+            contexto_usuario=ctx,
+        )
+        response = ScheduleOptimizer(timeout_seconds=15, weights=PenaltyWeights(omission=100)).generar(request)
+        assert response.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE)
+        # 600 min total > 420 min capacity → at least some must be omitted
+        assert len(response.tareas_omitidas) >= 1
+
+    def test_omission_list_contains_task_names(self):
+        """Omitted tasks should appear by name in tareas_omitidas."""
+        ctx = ContextoUsuario(
+            nivel_energia=3,
+            horario_inicio=480,
+            horario_fin=600,  # only 120 min/day
+        )
+        # 10 tasks of 100 min each = 1000 min total, but only 7*120=840 min available
+        tareas = [
+            Actividad(
+                id=f"t{i}", nombre=f"Task {i}", tipo=TipoActividad.TAREA,
+                duracion_estimada=100, dificultad=Dificultad.MEDIA,
+            )
+            for i in range(10)
+        ]
+        request = SolicitudHorario(
+            actividades_fijas=[],
+            tareas_pendientes=tareas,
+            contexto_usuario=ctx,
+        )
+        response = ScheduleOptimizer(
+            timeout_seconds=10,
+            weights=PenaltyWeights(omission=100),
+        ).generar(request)
+        assert response.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE)
+        # With 10 tasks and only 7*120=840 min capacity, at least some must be omitted
+        assert len(response.tareas_omitidas) >= 1
+        # Verify omitted names appear
+        omitted_set = set(response.tareas_omitidas)
+        scheduled_names = {b.nombre for b in response.bloques}
+        assert omitted_set.isdisjoint(scheduled_names)  # no overlap
+
+    def test_zero_omission_weight_disables_penalty(self):
+        """With omission=0, the solver doesn't care about omissions
+        and may omit tasks even when they could fit."""
+        ctx = ContextoUsuario(
+            nivel_energia=3,
+            horario_inicio=480,
+            horario_fin=1200,
+        )
+        tareas = [
+            Actividad(
+                id="opt", nombre="Optional Task", tipo=TipoActividad.TAREA,
+                dia=3, duracion_estimada=60, dificultad=Dificultad.MEDIA,
+                prioridad=0,
+            ),
+        ]
+        request = SolicitudHorario(
+            actividades_fijas=[],
+            tareas_pendientes=tareas,
+            contexto_usuario=ctx,
+        )
+        # With omission=0, solver may freely omit
+        response = ScheduleOptimizer(
+            timeout_seconds=5,
+            weights=PenaltyWeights(omission=0),
+        ).generar(request)
+        assert response.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE)
+        # With omission=0, the solver may or may not schedule — the point is it CAN omit
+        # We just verify no crash and valid state

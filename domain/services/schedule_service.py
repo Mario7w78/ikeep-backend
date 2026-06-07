@@ -33,6 +33,7 @@ class PenaltyWeights:
     rb_09: int = 7    # múltiples cambios de ubicación
     rb_10: int = 9    # postergar tareas con fecha límite cercana
     rb_priority: int = 0  # tareas de baja prioridad en días tardíos
+    omission: int = 100000  # F9: penalización por omitir una tarea — alto para que solo ocurra cuando sea realmente inviable
 
 
 MIN_REST_BLOCK_MINUTES = 30
@@ -124,6 +125,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
             self._rb_09(model, state, objective_terms)
             self._rb_10(model, state, objective_terms)
             self._rb_priority(model, state, objective_terms)
+            self._rb_omission(model, state, objective_terms)
 
         if objective_terms:
             model.Minimize(sum(objective_terms))
@@ -266,8 +268,14 @@ class ScheduleOptimizer(AbstractSchedulerService):
             info["vars"][dia] = {"p": p, "s": s, "e": e}
             all_p.append(p)
 
-        # RD-05: exactamente un día
-        model.Add(sum(all_p) == 1)
+        # RD-05: como máximo un día (F9: permite omitir tareas si es inviable)
+        model.Add(sum(all_p) <= 1)
+
+        # F9: variable de omisión — 1 si la tarea no se programa, 0 si se asigna a algún día
+        omit = model.NewBoolVar(f"omit_{act.id}")
+        model.Add(sum(all_p) >= 1).OnlyEnforceIf(omit.Not())
+        model.Add(sum(all_p) == 0).OnlyEnforceIf(omit)
+        info["omit"] = omit
 
     # ==================== Restricciones duras ====================
 
@@ -554,6 +562,25 @@ class ScheduleOptimizer(AbstractSchedulerService):
                 model.Add(pen == 0).OnlyEnforceIf(v["p"].Not())
                 terms.append(pen)
 
+    def _rb_omission(self, model, state, terms):
+        """F9: penalizar la omisión de tareas (asignación parcial).
+
+        Cada tarea flexible tiene una variable 'omit'. Si weight > 0,
+        se añade una penalización al objetivo por cada tarea omitida,
+        incentivando al solver a programar la mayor cantidad posible.
+        """
+        w = self.weights.omission
+        if w == 0:
+            return
+        for tid, info in state["flex"].items():
+            omit = info.get("omit")
+            if omit is None:
+                continue
+            pen = model.NewIntVar(0, w, f"rb_omit_{tid}")
+            model.Add(pen == w).OnlyEnforceIf(omit)
+            model.Add(pen == 0).OnlyEnforceIf(omit.Not())
+            terms.append(pen)
+
     @staticmethod
     def _validate_fixed_overlaps(actividades_fijas):
         """Validate no overlaps using absolute minutes (cross-midnight safe).
@@ -688,13 +715,8 @@ class ScheduleOptimizer(AbstractSchedulerService):
             for d in range(dia_inicio, dia_inicio + dias_totales)
         ]
 
-        if total_flex > sum(available_per_day):
-            raise ValueError(
-                f"Las tareas pendientes requieren {total_flex} min totales, "
-                f"pero solo hay {sum(available_per_day)} min disponibles "
-                f"entre los días activos (considerando sueño y actividades fijas). "
-                f"Reduce las tareas o amplia el horario disponible."
-            )
+        # F9: la capacidad insuficiente ya no es un error — el solver omitirá tareas
+        # Se mantiene el cómputo de diagnóstico por si se necesita en el futuro.
 
     def _build_response(self, solver, raw_status, state) -> RespuestaHorario:
         _map = {
@@ -752,9 +774,15 @@ class ScheduleOptimizer(AbstractSchedulerService):
                 mensaje=mensaje,
                 bloques=fixed_blocks,
                 recomendaciones=tips,
+                tareas_omitidas=[info.get("nombre", tid) for tid, info in state["flex"].items()],
             )
 
         if estado == EstadoSolucion.DESCONOCIDO:
+            omitted_unknown = []
+            for tid, info in state["flex"].items():
+                assigned = any(solver.Value(v["p"]) == 1 for v in info["vars"].values())
+                if not assigned:
+                    omitted_unknown.append(info.get("nombre", tid))
             return RespuestaHorario(
                 estado=estado,
                 mensaje=f"El optimizador no encontro solucion en {self.timeout} segundos. "
@@ -762,12 +790,15 @@ class ScheduleOptimizer(AbstractSchedulerService):
                         "el tiempo de computo.",
                 bloques=fixed_blocks,
                 recomendaciones=["Reduce la cantidad de tareas o aumenta el tiempo de computo."],
+                tareas_omitidas=omitted_unknown,
             )
 
         # ── Construir bloques de tareas flexibles (solo si hay solucion) ──
         flex_blocks: list[BloqueTiempo] = []
+        omitted: list[str] = []
 
         for tid, info in state["flex"].items():
+            scheduled = False
             for dia, v in info["vars"].items():
                 if solver.Value(v["p"]) == 1:
                     flex_blocks.append(
@@ -781,10 +812,17 @@ class ScheduleOptimizer(AbstractSchedulerService):
                             ubicacion_id=info["loc"],
                         )
                     )
+                    scheduled = True
+            if not scheduled:
+                omitted.append(info.get("nombre", tid))
 
         bloques = sorted(fixed_blocks + flex_blocks, key=lambda x: (x.dia, x.hora_inicio))
         bloques = self._insert_travel_blocks(bloques, state.get("travel_lookup", {}))
-        return RespuestaHorario(estado=estado, bloques=bloques)
+        return RespuestaHorario(
+            estado=estado,
+            bloques=bloques,
+            tareas_omitidas=omitted,
+        )
 
 
     @staticmethod
