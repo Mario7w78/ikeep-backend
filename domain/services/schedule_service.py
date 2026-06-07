@@ -8,6 +8,15 @@ from domain.services.energy_classifier import clasificar_patron_energia
 from domain.entities.schedule_request import SolicitudHorario
 from domain.entities.schedule_response import BloqueTiempo, RespuestaHorario
 from domain.ports.inbound.scheduler_port import AbstractSchedulerService
+from domain.services.time_utils import (
+    MAX_BLOCK_MINUTES,
+    MAX_CROSSING_DAYS,
+    MAX_SLEEP_MINUTES,
+    MINUTES_PER_DAY,
+    abs_duration,
+    to_abs,
+    to_abs_minutes,
+)
 
 
 # ──────────────────────────── Config ────────────────────────────
@@ -23,6 +32,7 @@ class PenaltyWeights:
     rb_08: int = 3    # diferencias entre días consecutivos
     rb_09: int = 7    # múltiples cambios de ubicación
     rb_10: int = 9    # postergar tareas con fecha límite cercana
+    rb_priority: int = 0  # tareas de baja prioridad en días tardíos
 
 
 MIN_REST_BLOCK_MINUTES = 30
@@ -43,22 +53,40 @@ class ScheduleOptimizer(AbstractSchedulerService):
     # ======================== API pública ========================
 
     def generar(self, solicitud: SolicitudHorario) -> RespuestaHorario:
+        ctx = solicitud.contexto_usuario
+        dia_inicio = solicitud.dia_inicio
+        dias_totales = solicitud.dias_totales
         self._validate_fixed_overlaps(solicitud.actividades_fijas)
-        self._validate_task_duration(solicitud.tareas_pendientes, solicitud.contexto_usuario)
+        self._validate_task_duration(solicitud.tareas_pendientes, ctx, dia_inicio, dias_totales)
+        self._validate_consistency(solicitud.actividades_fijas, ctx.bloques_sueno, solicitud.tareas_pendientes, ctx, dia_inicio, dias_totales)
 
         model = cp_model.CpModel()
-        ctx = solicitud.contexto_usuario
 
-        patron = clasificar_patron_energia(ctx.historial_energia, ctx.nivel_energia)
+        if ctx.patron_energia_manual is not None:
+            patron = ctx.patron_energia_manual
+        else:
+            patron = clasificar_patron_energia(ctx.historial_energia, ctx.nivel_energia)
         self._patron_override = patron
 
         travel_lookup = self._build_travel_lookup(solicitud)
 
         state: dict = {
-            "intervals": {d: [] for d in range(7)},
+            "meta": {"dia_inicio": dia_inicio, "dias_totales": dias_totales},
+            "intervals": {d: [] for d in range(dia_inicio, dia_inicio + dias_totales)},
+            "intervals_abs": [],
             "fixed": {},
             "flex": {},
             "order_vars": {},
+            "diagnosis": {
+                "num_flex": len(solicitud.tareas_pendientes),
+                "total_flex_min": sum(a.duracion_estimada for a in solicitud.tareas_pendientes),
+                "num_fixed": len(solicitud.actividades_fijas),
+                "num_sleep": len(ctx.bloques_sueno),
+                "patron": patron.value,
+                "horario_inicio": ctx.horario_inicio[0],
+                "horario_fin": ctx.horario_fin[0],
+                "has_alta": any(a.dificultad == Dificultad.ALTA for a in solicitud.tareas_pendientes),
+            },
         }
 
         # RD-06: bloques de sueño
@@ -75,8 +103,8 @@ class ScheduleOptimizer(AbstractSchedulerService):
         for act in solicitud.tareas_pendientes:
             self._add_flexible_task(model, act, ctx, state)
 
-        # RD-01: no solapamiento
-        _add_no_overlap(model, state["intervals"])
+        # RD-01: no solapamiento (flat absolute timeline)
+        _add_no_overlap(model, state["intervals_abs"])
 
         # RD-04: tiempo de traslado entre ubicaciones
         self._add_travel_constraints(model, travel_lookup, state)
@@ -95,6 +123,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
             self._rb_08(model, state, objective_terms)
             self._rb_09(model, state, objective_terms)
             self._rb_10(model, state, objective_terms)
+            self._rb_priority(model, state, objective_terms)
 
         if objective_terms:
             model.Minimize(sum(objective_terms))
@@ -127,25 +156,45 @@ class ScheduleOptimizer(AbstractSchedulerService):
 
     @staticmethod
     def _add_sleep_blocks(model, bloques, state):
+        dia_inicio = state["meta"]["dia_inicio"]
+        dias_totales = state["meta"]["dias_totales"]
         for s in bloques:
-            if s.dia not in range(7):
+            if not (dia_inicio <= s.dia < dia_inicio + dias_totales):
                 continue
-            start = model.NewConstant(s.inicio)
-            dur = s.fin - s.inicio
-            end = model.NewConstant(s.fin)
-            iv = model.NewIntervalVar(start, dur, end, f"sleep_d{s.dia}")
-            state["intervals"][s.dia].append(iv)
+            abs_start = s.dia * 1440 + s.inicio
+            dur = abs_duration(s.inicio, s.fin)
+            abs_end = abs_start + dur
+            start_var = model.NewConstant(abs_start)
+            end_var = model.NewConstant(abs_end)
+            iv = model.NewIntervalVar(start_var, dur, end_var, f"sleep_d{s.dia}")
+            state["intervals_abs"].append(iv)
 
     @staticmethod
     def _add_fixed(model, act, state):
-        dur = act.hora_fin - act.hora_inicio
-        s = model.NewConstant(act.hora_inicio)
-        e = model.NewConstant(act.hora_fin)
-        iv = model.NewIntervalVar(s, dur, e, f"fix_{act.id}_d{act.dia}")
-        state["intervals"][act.dia].append(iv)
+        if act.dia is None:
+            raise ValueError(
+                f"La actividad fija '{act.nombre}' no tiene un día asignado. "
+                "Las actividades fijas requieren un día específico."
+            )
+        dia_inicio = state["meta"]["dia_inicio"]
+        dias_totales = state["meta"]["dias_totales"]
+        if not (dia_inicio <= act.dia < dia_inicio + dias_totales):
+            raise ValueError(
+                f"La actividad fija '{act.nombre}' tiene día {act.dia} fuera de la ventana "
+                f"[{dia_inicio}, {dia_inicio + dias_totales})"
+            )
+        dur = abs_duration(act.hora_inicio, act.hora_fin)
+        abs_start = to_abs(act.dia, act.hora_inicio)
+        abs_end = abs_start + dur
+        s_abs = model.NewConstant(abs_start)
+        e_abs = model.NewConstant(abs_end)
+        iv = model.NewIntervalVar(s_abs, dur, e_abs, f"fix_{act.id}_d{act.dia}")
+        state["intervals_abs"].append(iv)
         state["fixed"][act.id] = {
-            "s": s,
-            "e": e,
+            "s": model.NewConstant(act.hora_inicio),  # day-relative for travel
+            "e": model.NewConstant(act.hora_fin),     # day-relative for travel
+            "s_abs": s_abs,
+            "e_abs": e_abs,
             "loc": act.ubicacion_id,
             "dia": act.dia,
             "nombre": act.nombre,
@@ -154,19 +203,45 @@ class ScheduleOptimizer(AbstractSchedulerService):
 
     @staticmethod
     def _add_rest_blocks(model, ctx, state):
-        for dia in range(7):
+        dia_inicio = state["meta"]["dia_inicio"]
+        dias_totales = state["meta"]["dias_totales"]
+        for dia in range(dia_inicio, dia_inicio + dias_totales):
             p = model.NewBoolVar(f"rest_p_d{dia}")
             dur = MIN_REST_BLOCK_MINUTES
-            s = model.NewIntVar(ctx.horario_inicio, ctx.horario_fin - dur, f"rest_s_d{dia}")
-            e = model.NewIntVar(ctx.horario_inicio + dur, ctx.horario_fin, f"rest_e_d{dia}")
-            iv = model.NewOptionalIntervalVar(s, dur, e, p, f"rest_iv_d{dia}")
-            state["intervals"][dia].append(iv)
+            s = model.NewIntVar(ctx.horario_inicio[dia], ctx.horario_fin[dia] - dur, f"rest_s_d{dia}")
+            e = model.NewIntVar(ctx.horario_inicio[dia] + dur, ctx.horario_fin[dia], f"rest_e_d{dia}")
+            iv = model.NewOptionalIntervalVar(dia * 1440 + s, dur, dia * 1440 + e, p, f"rest_iv_d{dia}")
+            state["intervals_abs"].append(iv)
             model.Add(p == 1)
 
     @staticmethod
     def _add_flexible_task(model, act, ctx, state):
-        deadline = min(act.dia, 6)
-        days = list(range(deadline + 1))
+        # Day range with backward compat: if dia is set and the new day-range
+        # fields are at their defaults, alias dia → dia_hasta (Phase 1 behavior).
+        if act.dia is not None and act.dia_desde == 0 and act.dia_hasta == 6:
+            day_start = 0
+            day_end = act.dia
+        else:
+            day_start = act.dia_desde
+            day_end = act.dia_hasta
+
+        # Permitted days filter
+        permitted = act.dias_permitidos
+
+        # Anchor override
+        if act.es_ancla:
+            if act.dia is not None:
+                days = [act.dia]
+            elif act.dia_desde == act.dia_hasta:
+                days = [act.dia_desde]
+            else:
+                raise ValueError("Anchor task must have a specific day")
+        else:
+            days = list(range(day_start, day_end + 1))
+            if permitted is not None:
+                days = [d for d in days if d in permitted]
+                if not days:
+                    raise ValueError("No valid days after filtering by dias_permitidos")
         dur = act.duracion_estimada
         all_p: list = []
 
@@ -184,10 +259,10 @@ class ScheduleOptimizer(AbstractSchedulerService):
 
         for dia in days:
             p = model.NewBoolVar(f"p_{act.id}_d{dia}")
-            s = model.NewIntVar(ctx.horario_inicio, ctx.horario_fin - dur, f"s_{act.id}_d{dia}")
-            e = model.NewIntVar(ctx.horario_inicio + dur, ctx.horario_fin, f"e_{act.id}_d{dia}")
-            iv = model.NewOptionalIntervalVar(s, dur, e, p, f"iv_{act.id}_d{dia}")
-            state["intervals"][dia].append(iv)
+            s = model.NewIntVar(ctx.horario_inicio[dia], ctx.horario_fin[dia] - dur, f"s_{act.id}_d{dia}")
+            e = model.NewIntVar(ctx.horario_inicio[dia] + dur, ctx.horario_fin[dia], f"e_{act.id}_d{dia}")
+            iv = model.NewOptionalIntervalVar(dia * 1440 + s, dur, dia * 1440 + e, p, f"iv_{act.id}_d{dia}")
+            state["intervals_abs"].append(iv)
             info["vars"][dia] = {"p": p, "s": s, "e": e}
             all_p.append(p)
 
@@ -198,7 +273,9 @@ class ScheduleOptimizer(AbstractSchedulerService):
 
     @staticmethod
     def _add_travel_constraints(model, lookup, state):
-        for dia in range(7):
+        dia_inicio = state["meta"]["dia_inicio"]
+        dias_totales = state["meta"]["dias_totales"]
+        for dia in range(dia_inicio, dia_inicio + dias_totales):
             items: list = []
 
             for tid, info in state["flex"].items():
@@ -246,9 +323,9 @@ class ScheduleOptimizer(AbstractSchedulerService):
 
         if patron == PatronEnergia.TENDENCIA:
             # Hard constraint: max 1 ALTA task per day
-            for dia in range(7):
+            for dia in range(state["meta"]["dia_inicio"], state["meta"]["dia_inicio"] + state["meta"]["dias_totales"]):
                 alta_ps = [
-                    v["p"]
+                    info["vars"][dia]["p"]
                     for tid, info in state["flex"].items()
                     if info["dificultad"] == Dificultad.ALTA and dia in info["vars"]
                 ]
@@ -287,7 +364,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
         w = self.weights.rb_02
         if w == 0:
             return
-        for dia in range(7):
+        for dia in range(state["meta"]["dia_inicio"], state["meta"]["dia_inicio"] + state["meta"]["dias_totales"]):
             contribs: list = []
             for info in state["flex"].values():
                 if dia not in info["vars"]:
@@ -299,7 +376,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
                 contribs.append(part)
             if not contribs:
                 continue
-            total = model.NewIntVar(0, ctx.horario_fin - ctx.horario_inicio, f"rb02_t_d{dia}")
+            total = model.NewIntVar(0, ctx.horario_fin[dia] - ctx.horario_inicio[dia], f"rb02_t_d{dia}")
             model.Add(total == sum(contribs))
             excess = model.NewIntVar(0, 600, f"rb02_x_d{dia}")
             model.Add(total <= 360 + excess)
@@ -310,10 +387,10 @@ class ScheduleOptimizer(AbstractSchedulerService):
         w = self.weights.rb_03
         if w == 0:
             return
-        early_thr = ctx.horario_inicio + 60
-        late_thr = ctx.horario_fin - 60
         for tid, info in state["flex"].items():
             for dia, v in info["vars"].items():
+                early_thr = ctx.horario_inicio[dia] + 60
+                late_thr = ctx.horario_fin[dia] - 60
                 early = model.NewBoolVar(f"rb03_early_{tid}_d{dia}")
                 late = model.NewBoolVar(f"rb03_late_{tid}_d{dia}")
                 model.Add(v["s"] < early_thr).OnlyEnforceIf(early)
@@ -334,8 +411,8 @@ class ScheduleOptimizer(AbstractSchedulerService):
             return
         if getattr(self, "_patron_override", None) == PatronEnergia.CRONICO:
             w = max(1, int(w * 0.5))
-        day_range = ctx.horario_fin - ctx.horario_inicio
-        for dia in range(7):
+        for dia in range(state["meta"]["dia_inicio"], state["meta"]["dia_inicio"] + state["meta"]["dias_totales"]):
+            day_range = ctx.horario_fin[dia] - ctx.horario_inicio[dia]
             contribs: list = []
             for info in state["flex"].values():
                 if dia not in info["vars"]:
@@ -364,8 +441,8 @@ class ScheduleOptimizer(AbstractSchedulerService):
             if info["dificultad"] != Dificultad.ALTA:
                 continue
             for dia, v in info["vars"].items():
-                work_before = model.NewIntVar(0, ctx.horario_fin - ctx.horario_inicio, f"rb05_wb_{tid}_d{dia}")
-                model.Add(work_before == v["s"] - ctx.horario_inicio).OnlyEnforceIf(v["p"])
+                work_before = model.NewIntVar(0, ctx.horario_fin[dia] - ctx.horario_inicio[dia], f"rb05_wb_{tid}_d{dia}")
+                model.Add(work_before == v["s"] - ctx.horario_inicio[dia]).OnlyEnforceIf(v["p"])
                 model.Add(work_before == 0).OnlyEnforceIf(v["p"].Not())
                 excess = model.NewIntVar(0, 600, f"rb05_ex_{tid}_d{dia}")
                 model.Add(work_before <= 240 + excess)
@@ -378,8 +455,8 @@ class ScheduleOptimizer(AbstractSchedulerService):
             return
         for tid, info in state["flex"].items():
             for dia, v in info["vars"].items():
-                mis = model.NewIntVar(0, ctx.horario_fin - ctx.horario_inicio, f"rb06_mis_{tid}_d{dia}")
-                model.Add(mis >= (ctx.horario_fin - ctx.horario_inicio) - info["dur"] * 3).OnlyEnforceIf(v["p"])
+                mis = model.NewIntVar(0, ctx.horario_fin[dia] - ctx.horario_inicio[dia], f"rb06_mis_{tid}_d{dia}")
+                model.Add(mis >= (ctx.horario_fin[dia] - ctx.horario_inicio[dia]) - info["dur"] * 3).OnlyEnforceIf(v["p"])
                 model.Add(mis >= 0)
                 terms.append(mis * w)
 
@@ -388,14 +465,16 @@ class ScheduleOptimizer(AbstractSchedulerService):
         w = self.weights.rb_08
         if w == 0:
             return
-        day_loads: dict[int, list] = {d: [] for d in range(7)}
+        dia_inicio = state["meta"]["dia_inicio"]
+        dias_totales = state["meta"]["dias_totales"]
+        day_loads: dict[int, list] = {d: [] for d in range(dia_inicio, dia_inicio + dias_totales)}
         for info in state["flex"].values():
             for dia, v in info["vars"].items():
                 load = model.NewIntVar(0, info["dur"], f"rb08_l_{dia}")
                 model.Add(load == info["dur"]).OnlyEnforceIf(v["p"])
                 model.Add(load == 0).OnlyEnforceIf(v["p"].Not())
                 day_loads[dia].append(load)
-        for d in range(6):
+        for d in range(dia_inicio, dia_inicio + dias_totales - 1):
             if not day_loads[d] or not day_loads[d + 1]:
                 continue
             sd = model.NewIntVar(0, 600, f"rb08_sd{d}")
@@ -412,7 +491,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
         w = self.weights.rb_09
         if w == 0:
             return
-        for dia in range(7):
+        for dia in range(state["meta"]["dia_inicio"], state["meta"]["dia_inicio"] + state["meta"]["dias_totales"]):
             day_tasks = [
                 (tid, info)
                 for tid, info in state["flex"].items()
@@ -442,37 +521,180 @@ class ScheduleOptimizer(AbstractSchedulerService):
             return
         for info in state["flex"].values():
             for dia, v in info["vars"].items():
-                urgency = 6 - dia
+                urgency = (state["meta"]["dia_inicio"] + state["meta"]["dias_totales"] - 1) - dia
                 pen = model.NewIntVar(0, w * 6, f"rb10_pen")
                 model.Add(pen == w * urgency).OnlyEnforceIf(v["p"])
                 model.Add(pen == 0).OnlyEnforceIf(v["p"].Not())
                 terms.append(pen)
 
-    @staticmethod
-    def _validate_fixed_overlaps(actividades_fijas):
-        per_day: dict[int, list] = {}
-        for act in actividades_fijas:
-            per_day.setdefault(act.dia, []).append(act)
-        for dia, acts in per_day.items():
-            sorted_acts = sorted(acts, key=lambda a: a.hora_inicio)
-            for i in range(len(sorted_acts) - 1):
-                a, b = sorted_acts[i], sorted_acts[i + 1]
-                if b.hora_inicio < a.hora_fin:
-                    raise ValueError(
-                        f"Actividades fijas solapadas el día {dia}: "
-                        f"'{a.nombre}' termina a las {a.hora_fin} min "
-                        f"pero '{b.nombre}' empieza a las {b.hora_inicio} min"
-                    )
+    def _rb_priority(self, model, state, terms):
+        """RB-PRIORITY: penalizar tareas de baja prioridad en días tardíos.
+
+        Compara la prioridad de cada tarea flexible con la prioridad máxima
+        del conjunto. Aplica una penalidad proporcional a
+        (max_priority - task_priority) × day_index, para incentivar que
+        las tareas más importantes se asignen a días tempranos.
+        """
+        w = self.weights.rb_priority
+        if w == 0:
+            return
+        max_priority = max(
+            (info["prioridad"] for info in state["flex"].values()),
+            default=0,
+        )
+        if max_priority == 0:
+            return
+        for tid, info in state["flex"].items():
+            diff = max_priority - info["prioridad"]
+            if diff <= 0:
+                continue
+            for dia, v in info["vars"].items():
+                pen = model.NewIntVar(0, diff * 6 * w, f"rb_prio_{tid}_d{dia}")
+                model.Add(pen == diff * dia * w).OnlyEnforceIf(v["p"])
+                model.Add(pen == 0).OnlyEnforceIf(v["p"].Not())
+                terms.append(pen)
 
     @staticmethod
-    def _validate_task_duration(tareas_pendientes, ctx):
-        max_daily = ctx.horario_fin - ctx.horario_inicio
+    def _validate_fixed_overlaps(actividades_fijas):
+        """Validate no overlaps using absolute minutes (cross-midnight safe).
+
+        Raises ValueError if any interval exceeds 2880 minutes (2 days).
+        """
+        items: list[tuple[str, int, int]] = []
+        for act in actividades_fijas:
+            if act.dia is None:
+                raise ValueError(
+                    f"La actividad fija '{act.nombre}' no tiene un día asignado. "
+                    "Las actividades fijas requieren un día específico."
+                )
+            abs_start = to_abs(act.dia, act.hora_inicio)
+            dur = abs_duration(act.hora_inicio, act.hora_fin)
+            if dur > 2880:
+                raise ValueError(
+                    f"La actividad fija '{act.nombre}' tiene una duración de {dur} min, "
+                    f"superando el máximo permitido de 2880 min (2 días)"
+                )
+            abs_end = abs_start + dur
+            items.append((act.nombre, abs_start, abs_end))
+        items.sort(key=lambda x: x[1])  # sort by abs_start
+        for i in range(len(items) - 1):
+            name_a, _, abs_end_a = items[i]
+            name_b, abs_start_b, _ = items[i + 1]
+            if abs_start_b < abs_end_a:
+                raise ValueError(
+                    f"Actividades fijas solapadas: "
+                    f"'{name_a}' termina a los {abs_end_a} min absolutos "
+                    f"pero '{name_b}' empieza a los {abs_start_b} min absolutos"
+                )
+
+    @staticmethod
+    def _validate_task_duration(tareas_pendientes, ctx, dia_inicio: int = 0, dias_totales: int = 7):
+        max_daily = max(ctx.horario_fin[d] - ctx.horario_inicio[d] for d in range(dia_inicio, dia_inicio + dias_totales))
         for act in tareas_pendientes:
             if act.duracion_estimada > max_daily:
                 raise ValueError(
                     f"La tarea '{act.nombre}' dura {act.duracion_estimada} min, "
                     f"pero el horario disponible es de solo {max_daily} min/día"
                 )
+
+    @staticmethod
+    def _validate_consistency(
+        actividades_fijas: list,
+        bloques_sueno: list,
+        tareas_pendientes: list,
+        ctx,
+        dia_inicio: int = 0,
+        dias_totales: int = 7,
+    ) -> None:
+        """Pre-solve validation: check constraints before building CP-SAT model.
+
+        Raises ValueError with a descriptive message if the problem is
+        trivially infeasible.
+        """
+        # ── Sleep block duration ──────────────────────────────────
+        for s in bloques_sueno:
+            dur = abs_duration(s.inicio, s.fin)
+            if dur > MAX_SLEEP_MINUTES:
+                raise ValueError(
+                    f"El bloque de sueño del día {s.dia} dura {dur} min, "
+                    f"superando el máximo de {MAX_SLEEP_MINUTES} min ({MAX_SLEEP_MINUTES // 60}h)"
+                )
+
+        # ── Sleep conflicts with fixed activities ─────────────────
+        sleep_abs: list[tuple[str, int, int]] = [
+            ("sleep", to_abs(s.dia, s.inicio), to_abs(s.dia, s.inicio) + abs_duration(s.inicio, s.fin))
+            for s in bloques_sueno
+            if dia_inicio <= s.dia < dia_inicio + dias_totales
+        ]
+        fixed_abs: list[tuple[str, int, int]] = [
+            (act.nombre,) + to_abs_minutes(act.dia, act.hora_inicio, act.hora_fin)
+            for act in actividades_fijas
+        ]
+
+        for s_name, s_start, s_end in sleep_abs:
+            for f_name, f_start, f_end in fixed_abs:
+                if s_start < f_end and f_start < s_end:
+                    raise ValueError(
+                        f"La actividad fija '{f_name}' solapa con un bloque de sueño. "
+                        f"Ajusta los horarios de sueño o la actividad."
+                    )
+
+        # ── Day range validation + active window capacity ─────────
+        # Per-task: verify each task has at least one valid day
+        for act in tareas_pendientes:
+            # Backward compat: same alias logic as _add_flexible_task
+            if act.dia is not None and act.dia_desde == 0 and act.dia_hasta == 6:
+                day_start = 0
+                day_end = act.dia
+            else:
+                day_start = act.dia_desde
+                day_end = act.dia_hasta
+
+            if act.es_ancla:
+                if act.dia is not None:
+                    effective = [act.dia]
+                elif act.dia_desde == act.dia_hasta:
+                    effective = [act.dia_desde]
+                else:
+                    raise ValueError(
+                        f"La tarea ancla '{act.nombre}' requiere un día específico."
+                    )
+            else:
+                effective = list(range(day_start, day_end + 1))
+                if act.dias_permitidos is not None:
+                    effective = [d for d in effective if d in act.dias_permitidos]
+
+            if not effective:
+                raise ValueError(
+                    f"La tarea '{act.nombre}' no tiene días válidos después de aplicar "
+                    f"los filtros de programación."
+                )
+
+        total_flex = sum(a.duracion_estimada for a in tareas_pendientes)
+        days_available = dias_totales
+
+        # Count occupied time per day (sleep + fixed)
+        occupied_per_day: dict[int, int] = {}
+        for _, s_start, s_end in sleep_abs:
+            d = s_start // MINUTES_PER_DAY
+            occupied_per_day[d] = occupied_per_day.get(d, 0) + (s_end - s_start)
+        for act in actividades_fijas:
+            a_start, a_end = to_abs_minutes(act.dia, act.hora_inicio, act.hora_fin)
+            d = a_start // MINUTES_PER_DAY
+            occupied_per_day[d] = occupied_per_day.get(d, 0) + (a_end - a_start)
+
+        available_per_day = [
+            ctx.horario_fin[d] - ctx.horario_inicio[d] - occupied_per_day.get(d, 0)
+            for d in range(dia_inicio, dia_inicio + dias_totales)
+        ]
+
+        if total_flex > sum(available_per_day):
+            raise ValueError(
+                f"Las tareas pendientes requieren {total_flex} min totales, "
+                f"pero solo hay {sum(available_per_day)} min disponibles "
+                f"entre los días activos (considerando sueño y actividades fijas). "
+                f"Reduce las tareas o amplia el horario disponible."
+            )
 
     def _build_response(self, solver, raw_status, state) -> RespuestaHorario:
         _map = {
@@ -483,28 +705,72 @@ class ScheduleOptimizer(AbstractSchedulerService):
         }
         estado = _map.get(raw_status, EstadoSolucion.DESCONOCIDO)
 
+        # ── Construir bloques de actividades fijas (disponibles incluso si falla) ──
+        fixed_blocks: list[BloqueTiempo] = [
+            BloqueTiempo(
+                id_actividad=fid,
+                nombre=finfo["nombre"],
+                tipo=finfo["tipo"],
+                dia=finfo["dia"],
+                hora_inicio=solver.Value(finfo["s"]),
+                hora_fin=solver.Value(finfo["e"]),
+                ubicacion_id=finfo["loc"],
+            )
+            for fid, finfo in state["fixed"].items()
+        ]
+
         if estado == EstadoSolucion.INFACTIBLE:
+            diag = state.get("diagnosis", {})
+            tips: list[str] = []
+
+            if diag.get("num_flex", 0) == 0 and diag.get("num_fixed", 0) > 0:
+                tips.append("Las actividades fijas o los bloques de sueño se superponen entre si. "
+                            "Revisa los horarios e intenta de nuevo.")
+            elif diag.get("num_fixed", 0) + diag.get("num_sleep", 0) > 0:
+                tips.append("Las actividades fijas o el sueno pueden estar ocupando todo el tiempo disponible. "
+                            "Ajusta sus horarios o reduces.")
+
+            if diag.get("num_flex", 0) > 0:
+                dias_totales = state.get("meta", {}).get("dias_totales", 7)
+                available = (diag.get("horario_fin", 1200) - diag.get("horario_inicio", 480)) * dias_totales
+                if diag.get("total_flex_min", 0) > available:
+                    tips.append(f"Las {diag['num_flex']} tareas pendientes requieren {diag['total_flex_min']} min en total, "
+                                f"pero el horario activo solo ofrece {available} min por semana. "
+                                f"Reduce la cantidad de tareas o amplia el horario disponible.")
+
+            if diag.get("has_alta") and diag.get("patron") == "tendencia":
+                tips.append("Con un patron de energia en bajada (TENDENCIA) solo puedes tener 1 tarea "
+                            "dificil (ALTA) por dia. Distribuye las tareas ALTA en diferentes dias "
+                            "o cambia su nivel de dificultad.")
+
+            mensaje = "No se pudo armar el horario completo. " + " ".join(tips) if tips else \
+                      "No se pudo armar el horario con estos datos. Reduce las tareas, amplia el horario activo, " \
+                      "o aumenta el tiempo de computo del optimizador."
+
             return RespuestaHorario(
                 estado=estado,
-                mensaje="No se encontró una solución con las restricciones actuales. "
-                        "Verifica que las actividades fijas no solapen los bloques de sueño, "
-                        "que haya tiempo disponible para cada tarea, "
-                        "y que el horario activo tenga suficiente capacidad.",
+                mensaje=mensaje,
+                bloques=fixed_blocks,
+                recomendaciones=tips,
             )
 
         if estado == EstadoSolucion.DESCONOCIDO:
             return RespuestaHorario(
                 estado=estado,
-                mensaje=f"El optimizador no encontró solución en {self.timeout}s. "
-                        "Reduce la cantidad de tareas o aumenta el tiempo límite.",
+                mensaje=f"El optimizador no encontro solucion en {self.timeout} segundos. "
+                        "Prueba reduciendo la cantidad de tareas pendientes o aumentando "
+                        "el tiempo de computo.",
+                bloques=fixed_blocks,
+                recomendaciones=["Reduce la cantidad de tareas o aumenta el tiempo de computo."],
             )
 
-        bloques: list[BloqueTiempo] = []
+        # ── Construir bloques de tareas flexibles (solo si hay solucion) ──
+        flex_blocks: list[BloqueTiempo] = []
 
         for tid, info in state["flex"].items():
             for dia, v in info["vars"].items():
                 if solver.Value(v["p"]) == 1:
-                    bloques.append(
+                    flex_blocks.append(
                         BloqueTiempo(
                             id_actividad=tid,
                             nombre=info["nombre"],
@@ -516,20 +782,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
                         )
                     )
 
-        for fid, finfo in state["fixed"].items():
-            bloques.append(
-                BloqueTiempo(
-                    id_actividad=fid,
-                    nombre=finfo["nombre"],
-                    tipo=finfo["tipo"],
-                    dia=finfo["dia"],
-                    hora_inicio=solver.Value(finfo["s"]),
-                    hora_fin=solver.Value(finfo["e"]),
-                    ubicacion_id=finfo["loc"],
-                )
-            )
-
-        bloques.sort(key=lambda x: (x.dia, x.hora_inicio))
+        bloques = sorted(fixed_blocks + flex_blocks, key=lambda x: (x.dia, x.hora_inicio))
         bloques = self._insert_travel_blocks(bloques, state.get("travel_lookup", {}))
         return RespuestaHorario(estado=estado, bloques=bloques)
 
@@ -570,10 +823,9 @@ class ScheduleOptimizer(AbstractSchedulerService):
 
 # ─────────────────────── Funciones auxiliares ───────────────────────
 
-def _add_no_overlap(model, intervals_per_day: dict):
-    for intervals in intervals_per_day.values():
-        if len(intervals) > 1:
-            model.AddNoOverlap(intervals)
+def _add_no_overlap(model, intervals_abs: list):
+    if len(intervals_abs) > 1:
+        model.AddNoOverlap(intervals_abs)
 
 
 def _rough_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:

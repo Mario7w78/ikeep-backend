@@ -98,6 +98,6 @@ def test_contexto_other_fields_preserved():
     domain = contexto_to_domain(dto)
 
     assert domain.nivel_energia == 1
-    assert domain.horario_inicio == 420
-    assert domain.horario_fin == 1080
+    assert domain.horario_inicio == [420, 420, 420, 420, 420, 420, 420]
+    assert domain.horario_fin == [1080, 1080, 1080, 1080, 1080, 1080, 1080]
     assert len(domain.historial_energia) == 1

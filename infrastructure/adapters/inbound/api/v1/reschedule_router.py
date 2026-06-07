@@ -23,12 +23,10 @@ def replanificar(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    if resultado.estado in (EstadoDomain.INFACTIBLE, EstadoDomain.DESCONOCIDO):
-        raise HTTPException(status_code=409, detail=resultado.mensaje)
-
     return RespuestaHorario(
         estado=resultado.estado.value,
         mensaje=resultado.mensaje,
+        recomendaciones=resultado.recomendaciones,
         bloques=[
             BloqueTiempo(
                 id_actividad=b.id_actividad,

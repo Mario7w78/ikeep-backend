@@ -5,6 +5,7 @@ from domain.entities.schedule_request import SolicitudHorario
 from domain.entities.schedule_response import RespuestaHorario
 from domain.entities.user_context import ContextoUsuario
 from domain.ports.inbound.reschedule_port import AbstractRescheduleService
+from domain.services.time_utils import abs_duration
 from domain.ports.inbound.scheduler_port import AbstractSchedulerService
 
 
@@ -65,6 +66,8 @@ class RescheduleService(AbstractRescheduleService):
                 horario_fin=ctx.horario_fin,
                 bloques_sueno=list(ctx.bloques_sueno),
             ),
+            dia_inicio=request.dia_inicio,
+            dias_totales=request.dias_totales,
         )
 
         return self.optimizer.generar(solicitud)
@@ -74,12 +77,16 @@ class RescheduleService(AbstractRescheduleService):
         bloque,
         extra_duracion: int = 0,
     ) -> Actividad:
-        base_duracion = bloque.hora_fin - bloque.hora_inicio
+        base_duracion = abs_duration(bloque.hora_inicio, bloque.hora_fin)
         return Actividad(
             id=bloque.id_actividad,
             nombre=bloque.nombre,
             tipo=bloque.tipo,
             dia=bloque.dia,
+            dia_desde=0,
+            dia_hasta=6,
+            dias_permitidos=None,
+            es_ancla=False,
             hora_inicio=bloque.hora_inicio,
             hora_fin=bloque.hora_fin,
             ubicacion_id=bloque.ubicacion_id,

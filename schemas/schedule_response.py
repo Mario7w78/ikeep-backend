@@ -17,3 +17,4 @@ class RespuestaHorario(BaseModel):
     estado: str
     bloques: list[BloqueTiempo] = []
     mensaje: str = ""
+    recomendaciones: list[str] = []

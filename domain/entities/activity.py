@@ -8,9 +8,13 @@ class Actividad:
     id: str
     nombre: str
     tipo: TipoActividad
-    dia: int
-    hora_inicio: int
-    hora_fin: int
+    hora_inicio: int = 0
+    hora_fin: int = 0
+    dia: int | None = None
+    dia_desde: int = 0
+    dia_hasta: int = 6
+    dias_permitidos: list[int] | None = None
+    es_ancla: bool = False
     ubicacion_id: str | None = None
     prioridad: int = 0
     duracion_estimada: int = 0

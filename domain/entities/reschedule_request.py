@@ -10,3 +10,5 @@ class SolicitudReplanificacion:
     actividad_afectada_id: str
     tiempo_perdido_minutos: int
     contexto_usuario: ContextoUsuario = field(default_factory=ContextoUsuario)
+    dia_inicio: int = 0
+    dias_totales: int = 7

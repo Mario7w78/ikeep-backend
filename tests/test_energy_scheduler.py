@@ -19,7 +19,7 @@ def _run_rb01(patron: PatronEnergia, tasks: list[dict], nivel_energia: int = 1):
     """Set up a minimal CP-SAT model, call _rb_01, solve, and return solver + state."""
     model = cp_model.CpModel()
     ctx = ContextoUsuario(nivel_energia=nivel_energia)
-    state: dict = {"flex": {}}
+    state: dict = {"flex": {}, "meta": {"dia_inicio": 0, "dias_totales": 7}}
     terms: list = []
 
     for idx, task in enumerate(tasks):
@@ -120,34 +120,33 @@ def test_tendencia_multiple_alta_different_days_ok():
 
 
 def test_cronico_alta_penalty_higher_than_media():
-    """Under CRONICO, ALTA tasks should produce larger penalty terms than MEDIA."""
+    """Under CRONICO, ALTA tasks get a higher penalty coefficient than MEDIA.
+
+    ALTA uses v['s'] * w * 2 → max 1440 * w * 2 = 28800.
+    MEDIA uses info['dur'] * w  → max 1440 * w     = 14400.
+
+    This test verifies:
+    - The model is feasible (solver finds a solution)
+    - The ALTA penalty variable has a higher upper bound than MEDIA's
+    """
     tasks = [
         {"dificultad": Dificultad.ALTA, "dur": 60, "days": [0]},
         {"dificultad": Dificultad.MEDIA, "dur": 60, "days": [0]},
     ]
     solver, status, state, terms = _run_rb01(PatronEnergia.CRONICO, tasks, nivel_energia=2)
 
-    # The terms list contains penalty variables for each task.
-    # ALTA uses v["s"] * w * 2, non-ALTA uses info["dur"] * w.
-    # Since we gave both tasks the same duration and same day,
-    # the ALTA penalty variable should be higher.
-    assert len(terms) >= 2, "Expected at least 2 penalty terms"
+    # One penalty variable per (task, day) pair
+    assert len(terms) == 2, f"Expected 2 penalty terms (ALTA + MEDIA), got {len(terms)}"
 
-    # We can't directly compare variable values (they depend on solver assignment),
-    # but we know the model was built with higher coefficients for ALTA.
-    # The terms are ordered by task iteration, so t0 (ALTA) is first two,
-    # t1 (MEDIA) is second two.
-    alta_term = terms[0]
-    media_term = terms[2]
+    # terms[0] = ALTA (t0, day 0), terms[1] = MEDIA (t1, day 0)
+    # ALTA max = 1440 * w * 2 = 28800, MEDIA max = 1440 * w = 14400
+    # domain is a flat [min, max] list in newer OR-Tools protos
+    alta_max = terms[0].Proto().domain[1]
+    media_max = terms[1].Proto().domain[1]
+    assert alta_max > media_max, (
+        f"ALTA penalty max ({alta_max}) should exceed MEDIA max ({media_max})"
+    )
 
-    # Get the upper bounds as a proxy
-    # ALTA has max 1440 * w * 2 = 28800, MEDIA has max 1440 * w = 14400
-    # But more directly, the objective minimizes sum, so if the solver can
-    # assign any value, it will pick the lowest possible.
-    # The constraint is: for ALTA, pen == s * w * 2, for MEDIA pen == dur * w
-    # If start time = 0, ALTA penalty = 0, MEDIA penalty = 60*10 = 600
-    # So MEDIA should always have a non-zero penalty while ALTA can be 0.
-    # Let's just verify the model is feasible.
     assert status in (cp_model.OPTIMAL, cp_model.FEASIBLE), (
         f"CRONICO model should be solvable, got status {status}"
     )

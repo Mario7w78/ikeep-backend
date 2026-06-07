@@ -18,6 +18,10 @@ def actividad_to_domain(dto: ActividadDTO) -> ActividadDomain:
         nombre=dto.nombre,
         tipo=dto.tipo,
         dia=dto.dia,
+        dia_desde=dto.dia_desde,
+        dia_hasta=dto.dia_hasta,
+        dias_permitidos=dto.dias_permitidos,
+        es_ancla=dto.es_ancla,
         hora_inicio=dto.hora_inicio,
         hora_fin=dto.hora_fin,
         ubicacion_id=dto.ubicacion_id,
@@ -65,6 +69,7 @@ def contexto_to_domain(dto: ContextoDTO) -> ContextoDomain:
         horario_fin=dto.horario_fin,
         bloques_sueno=[bloque_sueno_to_domain(b) for b in dto.bloques_sueno],
         historial_energia=[registro_energia_to_domain(r) for r in dto.historial_energia],
+        patron_energia_manual=dto.patron_energia_manual,
     )
 
 
@@ -77,6 +82,8 @@ def solicitud_to_domain(dto: SolicitudDTO) -> ActividadDomain:
         ubicaciones=[ubicacion_to_domain(u) for u in dto.ubicaciones],
         tiempos_traslado=[tiempo_traslado_to_domain(t) for t in dto.tiempos_traslado],
         contexto_usuario=contexto_to_domain(dto.contexto_usuario),
+        dia_inicio=dto.dia_inicio,
+        dias_totales=dto.dias_totales,
     )
 
 
@@ -101,6 +108,8 @@ def reschedule_to_domain(dto: SolicitudReplanDTO) -> SolicitudReplanDomain:
         actividad_afectada_id=dto.actividad_afectada_id,
         tiempo_perdido_minutos=dto.tiempo_perdido_minutos,
         contexto_usuario=contexto_to_domain(dto.contexto_usuario),
+        dia_inicio=dto.dia_inicio,
+        dias_totales=dto.dias_totales,
     )
 
 

@@ -9,3 +9,5 @@ class SolicitudReplanificacion(BaseModel):
     actividad_afectada_id: str
     tiempo_perdido_minutos: int
     contexto_usuario: ContextoUsuario = ContextoUsuario()
+    dia_inicio: int = 0
+    dias_totales: int = 7

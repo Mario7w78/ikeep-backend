@@ -19,3 +19,4 @@ class RespuestaHorario:
     estado: EstadoSolucion
     bloques: list[BloqueTiempo] = field(default_factory=list)
     mensaje: str = ""
+    recomendaciones: list[str] = field(default_factory=list)
