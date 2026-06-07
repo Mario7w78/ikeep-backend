@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
+
+from dependency_injector.wiring import Provide, inject
 
 from domain.entities.enums import EstadoSolucion as EstadoDomain
 from domain.ports.inbound.reschedule_port import AbstractRescheduleService
-from infrastructure.adapters.inbound.api.dependencies import get_reschedule_service
+from infrastructure.config.container import ApplicationContainer
 from infrastructure.adapters.inbound.api.mappers import reschedule_to_domain
 from schemas.reschedule_request import SolicitudReplanificacion
 from schemas.schedule_response import BloqueTiempo, RespuestaHorario
@@ -11,17 +13,13 @@ router = APIRouter(prefix="/api/v1/horarios", tags=["Horarios"])
 
 
 @router.post("/replanificar", response_model=RespuestaHorario)
+@inject
 def replanificar(
     request: SolicitudReplanificacion,
-    service: AbstractRescheduleService = Depends(get_reschedule_service),
+    service: AbstractRescheduleService = Depends(Provide[ApplicationContainer.reschedule_service]),
 ):
-    try:
-        domain_request = reschedule_to_domain(request)
-        resultado = service.replanificar(domain_request)
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    domain_request = reschedule_to_domain(request)
+    resultado = service.replanificar(domain_request)
 
     return RespuestaHorario(
         estado=resultado.estado.value,

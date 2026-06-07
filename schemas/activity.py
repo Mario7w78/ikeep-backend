@@ -94,3 +94,5 @@ class Actividad(BaseModel):
                 self.dia_hasta = self.dia
 
         return self
+    hora_preferida_inicio: int | None = None
+    hora_preferida_fin: int | None = None

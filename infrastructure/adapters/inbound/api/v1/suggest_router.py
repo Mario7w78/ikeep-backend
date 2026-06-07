@@ -1,33 +1,31 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends
+
+from dependency_injector.wiring import Provide, inject
 
 from domain.services.suggest_service import SuggestService
-from schemas.suggest_task import (
-    Actividad,
-    SugerenciaTarea,
-    SugerirTareaRequest,
-    SugerirTareaResponse,
+from infrastructure.config.container import ApplicationContainer
+from infrastructure.adapters.inbound.api.mappers import actividad_to_domain
+from schemas.suggest_actividad_optimizable import (
+    SugerenciaActividadOptimizable,
+    SugerirActividadOptimizableRequest,
+    SugerirActividadOptimizableResponse,
 )
 
 router = APIRouter(prefix="/schedule", tags=["Schedule"])
 
-_service = SuggestService()
 
+@router.post("/suggest-actividades-optimizables", response_model=SugerirActividadOptimizableResponse)
+@inject
+def suggest_actividades_optimizables(
+    request: SugerirActividadOptimizableRequest,
+    service: SuggestService = Depends(Provide[ApplicationContainer.suggest_service]),
+):
+    domain_activities = [actividad_to_domain(a) for a in request.actividades_optimizables]
+    results = service.sugerir(request.tiempo_libre_minutos, domain_activities)
 
-@router.post("/suggest-task", response_model=SugerirTareaResponse)
-def suggest_task(request: SugerirTareaRequest):
-    try:
-        from infrastructure.adapters.inbound.api.mappers import actividad_to_domain
-
-        domain_tasks = [actividad_to_domain(a) for a in request.tareas_pendientes]
-        results = _service.sugerir(request.tiempo_libre_minutos, domain_tasks)
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-    return SugerirTareaResponse(
+    return SugerirActividadOptimizableResponse(
         sugerencias=[
-            SugerenciaTarea(
+            SugerenciaActividadOptimizable(
                 id_actividad=r["id_actividad"],
                 nombre=r["nombre"],
                 tipo=r["tipo"],

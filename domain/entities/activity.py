@@ -20,3 +20,5 @@ class Actividad:
     duracion_estimada: int = 0
     fecha_limite: str | None = None
     dificultad: Dificultad = Dificultad.MEDIA
+    hora_preferida_inicio: int | None = None
+    hora_preferida_fin: int | None = None

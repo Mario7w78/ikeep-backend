@@ -101,7 +101,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
         self._add_rest_blocks(model, ctx, state)
 
         # Variables de decisión para tareas flexibles
-        for act in solicitud.tareas_pendientes:
+        for act in solicitud.actividades_optimizables:
             self._add_flexible_task(model, act, ctx, state)
 
         # RD-01: no solapamiento (flat absolute timeline)
@@ -114,7 +114,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
         # Restricciones blandas
         objective_terms: list[int] = []
 
-        if solicitud.tareas_pendientes:
+        if solicitud.actividades_optimizables:
             self._rb_01(model, ctx, state, objective_terms, patron)
             self._rb_02(model, ctx, state, objective_terms)
             self._rb_03(model, ctx, state, objective_terms)
@@ -246,6 +246,10 @@ class ScheduleOptimizer(AbstractSchedulerService):
                     raise ValueError("No valid days after filtering by dias_permitidos")
         dur = act.duracion_estimada
         all_p: list = []
+
+        # Ventana de tiempo efectiva: intersección del horario del usuario con la preferencia de la tarea
+        eff_start = max(ctx.horario_inicio, act.hora_preferida_inicio) if act.hora_preferida_inicio is not None else ctx.horario_inicio
+        eff_end = min(ctx.horario_fin, act.hora_preferida_fin) if act.hora_preferida_fin is not None else ctx.horario_fin
 
         info = {
             "nombre": act.nombre,
@@ -620,9 +624,18 @@ class ScheduleOptimizer(AbstractSchedulerService):
         for act in tareas_pendientes:
             if act.duracion_estimada > max_daily:
                 raise ValueError(
-                    f"La tarea '{act.nombre}' dura {act.duracion_estimada} min, "
+                    f"La actividad '{act.nombre}' dura {act.duracion_estimada} min, "
                     f"pero el horario disponible es de solo {max_daily} min/día"
                 )
+            # Validar contra la ventana preferida de la tarea
+            if act.hora_preferida_inicio is not None and act.hora_preferida_fin is not None:
+                window = act.hora_preferida_fin - act.hora_preferida_inicio
+                if act.duracion_estimada > window:
+                    raise ValueError(
+                        f"La actividad '{act.nombre}' dura {act.duracion_estimada} min, "
+                        f"pero su ventana preferida ({act.hora_preferida_inicio}–{act.hora_preferida_fin}) "
+                        f"tiene solo {window} min de espacio"
+                    )
 
     @staticmethod
     def _validate_consistency(

@@ -7,6 +7,12 @@ from schemas.user_context import BloqueSueno as BloqueSuenoDTO
 from schemas.user_context import ContextoUsuario as ContextoDTO
 from schemas.user_context import RegistroEnergia as RegistroEnergiaDTO
 
+from domain.entities.activity import Actividad as ActividadDomain
+from domain.entities.location import Ubicacion as UbicacionDomain
+from domain.entities.travel_time import TiempoTraslado as TiempoTrasladoDomain
+from domain.entities.reschedule_request import SolicitudReplanificacion as SolicitudReplanDomain
+from domain.entities.schedule_response import BloqueTiempo as BloqueTiempoDomain
+from domain.entities.schedule_response import RespuestaHorario as RespuestaDomain
 from domain.entities.user_context import BloqueSueno as BloqueSuenoDomain
 from domain.entities.user_context import ContextoUsuario as ContextoDomain
 from domain.entities.user_context import RegistroEnergia as RegistroEnergiaDomain
@@ -29,6 +35,8 @@ def actividad_to_domain(dto: ActividadDTO) -> ActividadDomain:
         duracion_estimada=dto.duracion_estimada,
         fecha_limite=dto.fecha_limite,
         dificultad=dto.dificultad,
+        hora_preferida_inicio=dto.hora_preferida_inicio,
+        hora_preferida_fin=dto.hora_preferida_fin,
     )
 
 
@@ -78,7 +86,7 @@ def solicitud_to_domain(dto: SolicitudDTO) -> ActividadDomain:
 
     return SolicitudDomain(
         actividades_fijas=[actividad_to_domain(a) for a in dto.actividades_fijas],
-        tareas_pendientes=[actividad_to_domain(a) for a in dto.tareas_pendientes],
+        actividades_optimizables=[actividad_to_domain(a) for a in dto.actividades_optimizables],
         ubicaciones=[ubicacion_to_domain(u) for u in dto.ubicaciones],
         tiempos_traslado=[tiempo_traslado_to_domain(t) for t in dto.tiempos_traslado],
         contexto_usuario=contexto_to_domain(dto.contexto_usuario),
