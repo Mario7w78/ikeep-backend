@@ -73,8 +73,8 @@ class ScheduleOptimizer(AbstractSchedulerService):
             )
 
         self._validate_fixed_overlaps(solicitud.actividades_fijas)
-        self._validate_task_duration(solicitud.tareas_pendientes, ctx, dia_inicio, dias_totales)
-        self._validate_consistency(solicitud.actividades_fijas, ctx.bloques_sueno, solicitud.tareas_pendientes, ctx, dia_inicio, dias_totales, omitido_weight=self.weights.omitido)
+        self._validate_task_duration(solicitud.actividades_optimizables, ctx, dia_inicio, dias_totales)
+        self._validate_consistency(solicitud.actividades_fijas, ctx.bloques_sueno, solicitud.actividades_optimizables, ctx, dia_inicio, dias_totales, omitido_weight=self.weights.omitido)
 
         model = cp_model.CpModel()
 
@@ -94,14 +94,14 @@ class ScheduleOptimizer(AbstractSchedulerService):
             "flex": {},
             "order_vars": {},
             "diagnosis": {
-                "num_flex": len(solicitud.tareas_pendientes),
-                "total_flex_min": sum(a.duracion_estimada for a in solicitud.tareas_pendientes),
+                "num_flex": len(solicitud.actividades_optimizables),
+                "total_flex_min": sum(a.duracion_estimada for a in solicitud.actividades_optimizables),
                 "num_fixed": len(solicitud.actividades_fijas),
                 "num_sleep": len(ctx.bloques_sueno),
                 "patron": patron.value,
                 "horario_inicio": ctx.horario_inicio[0],
                 "horario_fin": ctx.horario_fin[0],
-                "has_alta": any(a.dificultad == Dificultad.ALTA for a in solicitud.tareas_pendientes),
+                "has_alta": any(a.dificultad == Dificultad.ALTA for a in solicitud.actividades_optimizables),
             },
         }
 
@@ -274,10 +274,6 @@ class ScheduleOptimizer(AbstractSchedulerService):
         dur = act.duracion_estimada
         all_p: list = []
 
-        # Ventana de tiempo efectiva: intersección del horario del usuario con la preferencia de la tarea
-        eff_start = max(ctx.horario_inicio, act.hora_preferida_inicio) if act.hora_preferida_inicio is not None else ctx.horario_inicio
-        eff_end = min(ctx.horario_fin, act.hora_preferida_fin) if act.hora_preferida_fin is not None else ctx.horario_fin
-
         info = {
             "nombre": act.nombre,
             "tipo": act.tipo,
@@ -291,9 +287,17 @@ class ScheduleOptimizer(AbstractSchedulerService):
         state["flex"][act.id] = info
 
         for dia in days:
+            # Ventana efectiva por día: intersección del horario del usuario con la preferencia de la tarea
+            day_start = ctx.horario_inicio[dia]
+            day_end = ctx.horario_fin[dia]
+            if act.hora_preferida_inicio is not None:
+                day_start = max(day_start, act.hora_preferida_inicio)
+            if act.hora_preferida_fin is not None:
+                day_end = min(day_end, act.hora_preferida_fin)
+
             p = model.NewBoolVar(f"p_{act.id}_d{dia}")
-            s = model.NewIntVar(ctx.horario_inicio[dia], ctx.horario_fin[dia] - dur, f"s_{act.id}_d{dia}")
-            e = model.NewIntVar(ctx.horario_inicio[dia] + dur, ctx.horario_fin[dia], f"e_{act.id}_d{dia}")
+            s = model.NewIntVar(day_start, day_end - dur, f"s_{act.id}_d{dia}")
+            e = model.NewIntVar(day_start + dur, day_end, f"e_{act.id}_d{dia}")
             iv = model.NewOptionalIntervalVar(dia * 1440 + s, dur, dia * 1440 + e, p, f"iv_{act.id}_d{dia}")
             state["intervals_abs"].append(iv)
             info["vars"][dia] = {"p": p, "s": s, "e": e}
@@ -648,9 +652,9 @@ class ScheduleOptimizer(AbstractSchedulerService):
                 )
 
     @staticmethod
-    def _validate_task_duration(tareas_pendientes, ctx, dia_inicio: int = 0, dias_totales: int = 7):
+    def _validate_task_duration(actividades_optimizables, ctx, dia_inicio: int = 0, dias_totales: int = 7):
         max_daily = max(ctx.horario_fin[d] - ctx.horario_inicio[d] for d in range(dia_inicio, dia_inicio + dias_totales))
-        for act in tareas_pendientes:
+        for act in actividades_optimizables:
             if act.duracion_estimada > max_daily:
                 raise ValueError(
                     f"La actividad '{act.nombre}' dura {act.duracion_estimada} min, "
@@ -670,7 +674,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
     def _validate_consistency(
         actividades_fijas: list,
         bloques_sueno: list,
-        tareas_pendientes: list,
+        actividades_optimizables: list,
         ctx,
         dia_inicio: int = 0,
         dias_totales: int = 7,
@@ -711,7 +715,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
 
         # ── Day range validation + active window capacity ─────────
         # Per-task: verify each task has at least one valid day
-        for act in tareas_pendientes:
+        for act in actividades_optimizables:
             # Backward compat: same alias logic as _add_flexible_task
             if act.dia is not None and act.dia_desde == 0 and act.dia_hasta == 6:
                 day_start = 0
@@ -740,7 +744,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
                     f"los filtros de programación."
                 )
 
-        total_flex = sum(a.duracion_estimada for a in tareas_pendientes)
+        total_flex = sum(a.duracion_estimada for a in actividades_optimizables)
         days_available = dias_totales
 
         # Count occupied time per day (sleep + fixed)

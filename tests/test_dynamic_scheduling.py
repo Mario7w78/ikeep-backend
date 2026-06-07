@@ -1,4 +1,4 @@
-"""Tests for dynamic-scheduling Phase 1 features.
+﻿"""Tests for dynamic-scheduling Phase 1 features.
 
 Covers three additive features:
 1. Manual Energy Pattern Override
@@ -16,9 +16,9 @@ from domain.entities.schedule_response import RespuestaHorario
 from domain.entities.user_context import BloqueSueno, ContextoUsuario
 from domain.services.schedule_service import PenaltyWeights, ScheduleOptimizer
 
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # Feature 1: Manual Energy Pattern Override
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 
 class TestManualEnergyOverride:
@@ -38,7 +38,7 @@ class TestManualEnergyOverride:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -61,7 +61,7 @@ class TestManualEnergyOverride:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -85,7 +85,7 @@ class TestManualEnergyOverride:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -112,7 +112,7 @@ class TestManualEnergyOverride:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -128,9 +128,9 @@ class TestManualEnergyOverride:
         assert len(set(dias)) >= 2, "ALTA tasks should be on different days under TENDENCIA"
 
 
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # Feature 2: Real Priority Weighting (RB-PRIORITY)
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 
 class TestPriorityPenalty:
@@ -153,7 +153,7 @@ class TestPriorityPenalty:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         # Default weights have rb_priority=0
@@ -178,7 +178,7 @@ class TestPriorityPenalty:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         from domain.services.schedule_service import PenaltyWeights
@@ -209,7 +209,7 @@ class TestPriorityPenalty:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         from domain.services.schedule_service import PenaltyWeights
@@ -220,9 +220,9 @@ class TestPriorityPenalty:
         # Both tasks should be scheduled (no assertion on which day)
 
 
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # Feature 3: Optional Day Assignment (dia=None)
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 
 class TestOptionalDay:
@@ -243,7 +243,7 @@ class TestOptionalDay:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -269,7 +269,7 @@ class TestOptionalDay:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -307,7 +307,7 @@ class TestOptionalDay:
         ]
         request = SolicitudHorario(
             actividades_fijas=actividades_fijas,
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -328,7 +328,7 @@ class TestOptionalDay:
         ]
         request = SolicitudHorario(
             actividades_fijas=actividades,
-            tareas_pendientes=[],
+            actividades_optimizables=[],
             contexto_usuario=ctx,
         )
         with pytest.raises(ValueError, match="no tiene un día asignado"):
@@ -353,11 +353,11 @@ class TestOptionalDay:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
-        # Should not raise — 120 min total with 7 days × 720 min/day available
+        # Should not raise â€” 120 min total with 7 days Ã— 720 min/day available
         response = optimizer.generar(request)
         assert response.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE)
 
@@ -380,25 +380,25 @@ class TestOptionalDay:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
-        # Should not raise — 180 min total with 3 days × 720 min/day available
+        # Should not raise â€” 180 min total with 3 days Ã— 720 min/day available
         response = optimizer.generar(request)
         assert response.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE)
 
 
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # Feature 4 [F2]: Day Range (dia_desde/dia_hasta)
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 
 class TestDayRange:
     """F2: dia_desde/dia_hasta control the scheduling day window."""
 
     def test_dia_desde_hasta_normal_range(self):
-        """F2-S1: Task with dia_desde=2, dia_hasta=5 → days [2,5]."""
+        """F2-S1: Task with dia_desde=2, dia_hasta=5 â†’ days [2,5]."""
         ctx = ContextoUsuario(
             nivel_energia=3,
             horario_inicio=480,
@@ -413,7 +413,7 @@ class TestDayRange:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -427,7 +427,7 @@ class TestDayRange:
         )
 
     def test_backward_compat_dia_3(self):
-        """F2-S2: Task with dia=3 (backward compat) → days [0,3]."""
+        """F2-S2: Task with dia=3 (backward compat) â†’ days [0,3]."""
         ctx = ContextoUsuario(
             nivel_energia=3,
             horario_inicio=480,
@@ -441,7 +441,7 @@ class TestDayRange:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -455,7 +455,7 @@ class TestDayRange:
         )
 
     def test_dia_and_dia_desde_backward_compat(self):
-        """F2-S3: Task with dia=3 and dia_desde=1 → dia_hasta aliased."""
+        """F2-S3: Task with dia=3 and dia_desde=1 â†’ dia_hasta aliased."""
         ctx = ContextoUsuario(
             nivel_energia=3,
             horario_inicio=480,
@@ -470,7 +470,7 @@ class TestDayRange:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -503,7 +503,7 @@ class TestDayRange:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=1)
@@ -511,7 +511,7 @@ class TestDayRange:
             optimizer.generar(request)
 
     def test_single_day_range(self):
-        """F2-S5: dia_desde=3, dia_hasta=3 → single day [3]."""
+        """F2-S5: dia_desde=3, dia_hasta=3 â†’ single day [3]."""
         ctx = ContextoUsuario(
             nivel_energia=3,
             horario_inicio=480,
@@ -526,7 +526,7 @@ class TestDayRange:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -538,16 +538,16 @@ class TestDayRange:
         assert flex_blocks[0].dia == 3, f"Expected day 3, got {flex_blocks[0].dia}"
 
 
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # Feature 5 [F3]: Preferred/Blocked Days (dias_permitidos)
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 
 class TestPermittedDays:
     """F3: dias_permitidos filters which days a task can go on."""
 
     def test_permitted_none_is_noop(self):
-        """F3-S1: dias_permitidos=None → all days available."""
+        """F3-S1: dias_permitidos=None â†’ all days available."""
         ctx = ContextoUsuario(
             nivel_energia=3,
             horario_inicio=480,
@@ -562,7 +562,7 @@ class TestPermittedDays:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -574,7 +574,7 @@ class TestPermittedDays:
         assert 0 <= flex_blocks[0].dia <= 6
 
     def test_permitted_weekdays(self):
-        """F3-S2: dias_permitidos=[0,1,2,3,4] → weekdays only."""
+        """F3-S2: dias_permitidos=[0,1,2,3,4] â†’ weekdays only."""
         ctx = ContextoUsuario(
             nivel_energia=3,
             horario_inicio=480,
@@ -589,7 +589,7 @@ class TestPermittedDays:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -603,7 +603,7 @@ class TestPermittedDays:
         )
 
     def test_permitted_single_day(self):
-        """F3-S3: dias_permitidos=[3] → only day 3."""
+        """F3-S3: dias_permitidos=[3] â†’ only day 3."""
         ctx = ContextoUsuario(
             nivel_energia=3,
             horario_inicio=480,
@@ -618,7 +618,7 @@ class TestPermittedDays:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -630,7 +630,7 @@ class TestPermittedDays:
         assert flex_blocks[0].dia == 3
 
     def test_permitted_with_narrower_range(self):
-        """F3-S4: dias_permitidos + dia_desde/dia_hasta → intersection."""
+        """F3-S4: dias_permitidos + dia_desde/dia_hasta â†’ intersection."""
         ctx = ContextoUsuario(
             nivel_energia=3,
             horario_inicio=480,
@@ -645,7 +645,7 @@ class TestPermittedDays:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -660,7 +660,7 @@ class TestPermittedDays:
         )
 
     def test_permitted_outside_range_filters_all(self):
-        """F3-S5: dias_permitidos outside range → empty intersection error."""
+        """F3-S5: dias_permitidos outside range â†’ empty intersection error."""
         ctx = ContextoUsuario(
             nivel_energia=3,
             horario_inicio=480,
@@ -675,7 +675,7 @@ class TestPermittedDays:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=1)
@@ -683,7 +683,7 @@ class TestPermittedDays:
             optimizer.generar(request)
 
     def test_permitted_empty_list_error(self):
-        """F3-E4: empty dias_permitidos list → no valid days error."""
+        """F3-E4: empty dias_permitidos list â†’ no valid days error."""
         ctx = ContextoUsuario(
             nivel_energia=3,
             horario_inicio=480,
@@ -698,7 +698,7 @@ class TestPermittedDays:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=1)
@@ -706,16 +706,16 @@ class TestPermittedDays:
             optimizer.generar(request)
 
 
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # Feature 6 [F5]: Anchor Tasks
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 
 class TestAnchorTasks:
     """F5: es_ancla flag fixes the day while keeping time flexible."""
 
     def test_anchor_with_dia(self):
-        """F5-S1: Anchor with es_ancla=True, dia=3 → scheduled on day 3."""
+        """F5-S1: Anchor with es_ancla=True, dia=3 â†’ scheduled on day 3."""
         ctx = ContextoUsuario(
             nivel_energia=3,
             horario_inicio=480,
@@ -730,7 +730,7 @@ class TestAnchorTasks:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -759,7 +759,7 @@ class TestAnchorTasks:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=1)
@@ -767,7 +767,7 @@ class TestAnchorTasks:
             optimizer.generar(request)
 
     def test_anchor_with_range_auto_fix(self):
-        """F5-S2: Anchor with dia_desde=3, dia_hasta=3 → single day [3]."""
+        """F5-S2: Anchor with dia_desde=3, dia_hasta=3 â†’ single day [3]."""
         ctx = ContextoUsuario(
             nivel_energia=3,
             horario_inicio=480,
@@ -782,7 +782,7 @@ class TestAnchorTasks:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -809,7 +809,7 @@ class TestAnchorTasks:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -838,7 +838,7 @@ class TestAnchorTasks:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=1)
@@ -861,7 +861,7 @@ class TestAnchorTasks:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -874,13 +874,13 @@ class TestAnchorTasks:
         assert flex_blocks[0].dia == 2
 
 
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # Feature 4: Partial Assignment (F9)
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 
 class TestRollingWeek:
-    """F8: Rolling week — dia_inicio / dias_totales allow scheduling
+    """F8: Rolling week â€” dia_inicio / dias_totales allow scheduling
     over any window, not just Monday(0)-Sunday(6)."""
 
     def test_default_week_monday_to_sunday(self):
@@ -894,7 +894,7 @@ class TestRollingWeek:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         response = ScheduleOptimizer(timeout_seconds=5).generar(request)
@@ -918,7 +918,7 @@ class TestRollingWeek:
         ]
         request = SolicitudHorario(
             actividades_fijas=fijas,
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
             dia_inicio=3, dias_totales=3,
         )
@@ -931,14 +931,14 @@ class TestRollingWeek:
         with pytest.raises((ValueError, ValidationError)):
             # dias_totales = 0
             request = SolicitudHorario(
-                actividades_fijas=[], tareas_pendientes=[], contexto_usuario=ctx,
+                actividades_fijas=[], actividades_optimizables=[], contexto_usuario=ctx,
                 dia_inicio=0, dias_totales=0,
             )
             ScheduleOptimizer(timeout_seconds=5).generar(request)
 
 
 class TestPerDayHours:
-    """F7: Per-day active hours — different horario_inicio/fin per day."""
+    """F7: Per-day active hours â€” different horario_inicio/fin per day."""
 
     def test_backward_compat_single_int(self):
         """Single int horario_inicio/fin should expand to all days."""
@@ -951,7 +951,7 @@ class TestPerDayHours:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         response = ScheduleOptimizer(timeout_seconds=5).generar(request)
@@ -960,7 +960,7 @@ class TestPerDayHours:
         assert isinstance(response, RespuestaHorario)
 
     def test_varied_hours_per_day(self):
-        """Different hours for different days — narrow window on weekends."""
+        """Different hours for different days â€” narrow window on weekends."""
         ctx = ContextoUsuario(
             nivel_energia=3,
             horario_inicio=[480, 480, 480, 480, 480, 600, 600],  # 8AM weekdays, 10AM weekends
@@ -974,7 +974,7 @@ class TestPerDayHours:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         response = ScheduleOptimizer(timeout_seconds=5).generar(request)
@@ -996,7 +996,7 @@ class TestPerDayHours:
         with pytest.raises((ValueError, ValidationError, TypeError)):
             request = SolicitudHorario(
                 actividades_fijas=[],
-                tareas_pendientes=tareas,
+                actividades_optimizables=tareas,
                 contexto_usuario=ctx,
             )
             ScheduleOptimizer(timeout_seconds=5).generar(request)
@@ -1025,7 +1025,7 @@ class TestPartialAssignment:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         response = ScheduleOptimizer(timeout_seconds=5).generar(request)
@@ -1041,7 +1041,7 @@ class TestPartialAssignment:
             horario_inicio=480,
             horario_fin=540,  # only 60 min/day
         )
-        # 10 tasks × 60 min = 600 min > 7 × 60 = 420 min available
+        # 10 tasks Ã— 60 min = 600 min > 7 Ã— 60 = 420 min available
         tareas = [
             Actividad(
                 id=f"t{i}", nombre=f"Task {i}", tipo=TipoActividad.TAREA,
@@ -1051,12 +1051,12 @@ class TestPartialAssignment:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         response = ScheduleOptimizer(timeout_seconds=15, weights=PenaltyWeights(omitido=100)).generar(request)
         assert response.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE)
-        # 600 min total > 420 min capacity → at least some must be omitted
+        # 600 min total > 420 min capacity â†’ at least some must be omitted
         assert len(response.tareas_omitidas) >= 1
 
     def test_omission_list_contains_task_names(self):
@@ -1076,7 +1076,7 @@ class TestPartialAssignment:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         response = ScheduleOptimizer(
@@ -1108,7 +1108,7 @@ class TestPartialAssignment:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            tareas_pendientes=tareas,
+            actividades_optimizables=tareas,
             contexto_usuario=ctx,
         )
         # With omitido=0, solver may freely omit
@@ -1117,5 +1117,5 @@ class TestPartialAssignment:
             weights=PenaltyWeights(omitido=0),
         ).generar(request)
         assert response.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE)
-        # With omitido=0, the solver may or may not schedule — the point is it CAN omit
+        # With omitido=0, the solver may or may not schedule â€” the point is it CAN omit
         # We just verify no crash and valid state
