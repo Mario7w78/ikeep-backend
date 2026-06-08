@@ -64,12 +64,15 @@ Representa cualquier bloque en el horario: clase fija, tarea flexible, tarea anc
 | `duracion_estimada` | `int` | — | Minutos estimados (para tareas flexibles) |
 | `fecha_limite` | `str \| None` | `None` | Fecha límite ISO (reservado) |
 | `dificultad` | `"baja" \| "media" \| "alta"` | `"media"` | Dificultad de la tarea |
+| `hora_preferida_inicio` | `int \| None` | `None` | Inicio de ventana preferida (se intersecta con el horario del usuario) |
+| `hora_preferida_fin` | `int \| None` | `None` | Fin de ventana preferida (se intersecta con el horario del usuario) |
 
 **Reglas de validación cruzada:**
 - `dia` y `dia_hasta` no pueden enviarse juntos. Si se envía `dia`, se copia a `dia_hasta`.
 - `0 <= dia_desde <= dia_hasta <= 6`
 - `dias_permitidos`: cada valor entre 0-6, se deduplica automáticamente
 - `es_ancla=True` requiere un día concreto (`dia` o `dia_desde == dia_hasta`). No puede tener múltiples `dias_permitidos`.
+- `hora_preferida_inicio` y `hora_preferida_fin`: si se envían, la ventana efectiva por día será la intersección con el horario activo del usuario. La duración de la tarea no puede exceder el tamaño de la ventana.
 
 ### ContextoUsuario
 
@@ -111,7 +114,7 @@ Describe al estudiante y su energía.
 | Campo | Tipo | Default | Descripción |
 |-------|------|---------|-------------|
 | `actividades_fijas` | `list[Actividad]` | — | Clases y eventos fijos |
-| `tareas_pendientes` | `list[Actividad]` | — | Tareas a programar |
+| `actividades_optimizables` | `list[Actividad]` | — | Tareas a programar |
 | `ubicaciones` | `list[Ubicacion]` | `[]` | Ubicaciones para cálculos de traslado |
 | `tiempos_traslado` | `list[TiempoTraslado]` | `[]` | Tiempos de traslado conocidos |
 | `contexto_usuario` | `ContextoUsuario` | — | Contexto del estudiante |
@@ -269,7 +272,7 @@ Health check simple.
       "ubicacion_id": "aula_301"
     }
   ],
-  "tareas_pendientes": [
+  "actividades_optimizables": [
     {
       "id": "t1",
       "nombre": "Practicar parcial de Álgebra",
@@ -278,7 +281,9 @@ Health check simple.
       "dificultad": "alta",
       "prioridad": 5,
       "dia_desde": 0,
-      "dia_hasta": 4
+      "dia_hasta": 4,
+      "hora_preferida_inicio": null,
+      "hora_preferida_fin": null
     }
   ],
   "ubicaciones": [
@@ -415,7 +420,7 @@ Health check simple.
 
 ---
 
-### `POST /schedule/suggest-task`
+### `POST /schedule/suggest-actividades-optimizables`
 
 **Sugerir qué tarea hacer en un bloque libre.** No usa CP-SAT, es un servicio rápido de ranking.
 
@@ -424,15 +429,13 @@ Health check simple.
 ```json
 {
   "tiempo_libre_minutos": 90,
-  "tareas_pendientes": [
-    { "id": "t1", "nombre": "Leer capítulo 3", "tipo": "tarea", "hora_inicio": 0, "hora_fin": 0, "duracion_estimada": 60, "dificultad": "baja", "prioridad": 2 },
-    { "id": "t2", "nombre": "Resolver ejercicios", "tipo": "tarea", "hora_inicio": 0, "hora_fin": 0, "duracion_estimada": 120, "dificultad": "alta", "prioridad": 5 },
-    { "id": "t3", "nombre": "Resumen de clase", "tipo": "tarea", "hora_inicio": 0, "hora_fin": 0, "duracion_estimada": 30, "dificultad": "media", "prioridad": 3 }
+  "actividades_optimizables": [
+    { "id": "t1", "nombre": "Leer capítulo 3", "tipo": "tarea", "duracion_estimada": 60, "dificultad": "baja", "prioridad": 2 },
+    { "id": "t2", "nombre": "Resolver ejercicios", "tipo": "tarea", "duracion_estimada": 120, "dificultad": "alta", "prioridad": 5 },
+    { "id": "t3", "nombre": "Resumen de clase", "tipo": "tarea", "duracion_estimada": 30, "dificultad": "media", "prioridad": 3 }
   ]
 }
 ```
-
-> **Nota:** `hora_inicio` y `hora_fin` son requeridos por el schema de Actividad pero se ignoran. Usar `0`.
 
 #### Response `200`
 
@@ -498,7 +501,7 @@ El sistema tiene 3 niveles de uso, de menos a más sofisticado:
 
 **Mínimo necesario:**
 - `actividades_fijas`: las clases con día y hora exactos
-- `tareas_pendientes`: al menos `id`, `nombre`, `duracion_estimada`
+- `actividades_optimizables`: al menos `id`, `nombre`, `duracion_estimada`
 - `contexto_usuario.horario_inicio`: 480 (8 AM)
 - `contexto_usuario.horario_fin`: 1200 (8 PM)
 
@@ -530,7 +533,7 @@ El sistema tiene 3 niveles de uso, de menos a más sofisticado:
 1. El estudiante sigue el horario generado
 
 2. Cuando algo cambia (se cancela una clase, una tarea tomó más tiempo):
-   - Enviar POST /schedule/suggest-task para decidir qué hacer con el tiempo libre
+   - Enviar POST /schedule/suggest-actividades-optimizables para decidir qué hacer con el tiempo libre
    - O enviar POST /api/v1/horarios/replanificar con el horario actual + el cambio
 
 3. Mostrar el nuevo horario ajustado
@@ -552,7 +555,7 @@ El sistema tiene 3 niveles de uso, de menos a más sofisticado:
 | **Rolling week** | DatePicker "Arrancar desde..." + "Duración" | `dia_inicio`, `dias_totales` |
 | **Asignación parcial** | Badge "X tareas omitidas" con lista | Automático en respuesta `tareas_omitidas` |
 | **Replanificar** | Botón "Algo salió mal, reajustar" | POST `/replanificar` |
-| **Sugerir tarea** | Card "Tenés 1h libre, ¿qué hacés?" | POST `/suggest-task` |
+| **Sugerir tarea** | Card "Tenés 1h libre, ¿qué hacés?" | POST `/suggest-actividades-optimizables` |
 
 ### Interpretación de la Respuesta
 
@@ -609,7 +612,7 @@ Tres tareas de dificultad ALTA con prioridad máxima. Bajo patrón TENDENCIA, el
 
 ```json
 {
-  "tareas_pendientes": [
+  "actividades_optimizables": [
     { "id": "p1", "nombre": "Practicar parcial Álgebra", "dificultad": "alta", "prioridad": 5, "duracion_estimada": 120 },
     { "id": "p2", "nombre": "Resolver final Física", "dificultad": "alta", "prioridad": 5, "duracion_estimada": 180 },
     { "id": "p3", "nombre": "Hacer ejercicios Cálculo", "dificultad": "alta", "prioridad": 5, "duracion_estimada": 90 }
@@ -642,7 +645,7 @@ El estudiante no estudia los domingos.
 
 ```json
 {
-  "tareas_pendientes": [
+  "actividades_optimizables": [
     {
       "id": "t1",
       "nombre": "TP de Historia",
@@ -661,7 +664,7 @@ Un examen el viernes con prioridad alta. Se asigna temprano en la semana.
 
 ```json
 {
-  "tareas_pendientes": [
+  "actividades_optimizables": [
     {
       "id": "examen",
       "nombre": "Estudiar para examen",
@@ -682,7 +685,7 @@ Terapia los martes a cualquier hora.
 
 ```json
 {
-  "tareas_pendientes": [
+  "actividades_optimizables": [
     {
       "id": "terapia",
       "nombre": "Terapia",
@@ -703,7 +706,7 @@ El estudiante tiene 800 min de tareas pero solo 600 min disponibles. Con F9 acti
 
 ```json
 {
-  "tareas_pendientes": [
+  "actividades_optimizables": [
     { "id": "urgente", "nombre": "TP urgente", "duracion_estimada": 120, "prioridad": 5 },
     { "id": "lectura", "nombre": "Lectura liviana", "duracion_estimada": 60, "prioridad": 1 }
   ]
@@ -734,7 +737,7 @@ El estudiante tiene 1h libre entre clases.
 ```json
 {
   "tiempo_libre_minutos": 60,
-  "tareas_pendientes": [...]
+  "actividades_optimizables": [...]
 }
 ```
 

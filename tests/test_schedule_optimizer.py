@@ -471,3 +471,94 @@ class TestPreferredHours:
         b2 = next(b for b in result.bloques if b.id_actividad == "t2")
         assert b1.hora_inicio >= 480 and b1.hora_fin <= 600
         assert b2.hora_inicio >= 720 and b2.hora_fin <= 840
+
+    def test_preferred_inicio_only(self):
+        """Only hora_preferida_inicio set — task starts after that time."""
+        task = _make_task(
+            "t1", duracion=60,
+            hora_preferida_inicio=720,   # 12:00
+            hora_preferida_fin=None,      # no upper bound
+        )
+        solicitud = SolicitudHorario(
+            actividades_fijas=[],
+            actividades_optimizables=[task],
+            contexto_usuario=_make_ctx(),
+        )
+        optimizer = ScheduleOptimizer(timeout_seconds=5)
+        result = optimizer.generar(solicitud)
+
+        assert result.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE)
+        block = next(b for b in result.bloques if b.id_actividad == "t1")
+        assert block.hora_inicio >= 720, (
+            f"Should start at or after 12:00, got {block.hora_inicio}"
+        )
+
+    def test_preferred_fin_only(self):
+        """Only hora_preferida_fin set — task ends before that time."""
+        task = _make_task(
+            "t1", duracion=60,
+            hora_preferida_inicio=None,
+            hora_preferida_fin=600,       # 10:00
+        )
+        solicitud = SolicitudHorario(
+            actividades_fijas=[],
+            actividades_optimizables=[task],
+            contexto_usuario=_make_ctx(),
+        )
+        optimizer = ScheduleOptimizer(timeout_seconds=5)
+        result = optimizer.generar(solicitud)
+
+        assert result.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE)
+        block = next(b for b in result.bloques if b.id_actividad == "t1")
+        assert block.hora_fin <= 600, (
+            f"Should end at or before 10:00, got {block.hora_fin}"
+        )
+
+    def test_preferred_window_outside_schedule_infeasible(self):
+        """Preferred window fully outside user schedule → solver returns INFEASIBLE."""
+        # User: 08:00–12:00 (480–720)
+        # Task preferred: 13:00–15:00 (780–900) — fully outside
+        task = _make_task(
+            "t1", duracion=30,
+            hora_preferida_inicio=780,
+            hora_preferida_fin=900,
+        )
+        solicitud = SolicitudHorario(
+            actividades_fijas=[],
+            actividades_optimizables=[task],
+            contexto_usuario=_make_ctx(horario_inicio=480, horario_fin=720),
+        )
+        optimizer = ScheduleOptimizer(timeout_seconds=5)
+        result = optimizer.generar(solicitud)
+        # Day 0: user 480–720, preferred 780–900 ⇒ day_start=780 > day_end-dur=690
+        # CP-SAT empty domain → solver returns UNKNOWN (no exception)
+        assert result.estado in (EstadoSolucion.DESCONOCIDO, EstadoSolucion.INFACTIBLE)
+        # Should not crash, should return a graceful response
+
+    def test_preferred_window_wider_than_schedule(self):
+        """Preferred window wider than user hours → clamped to user schedule."""
+        # User: 08:00–12:00 (480–720)
+        # Task preferred: 06:00–22:00 (360–1320) — wider than user hours
+        # Effective: 480–720 (clamped)
+        task = _make_task(
+            "t1", duracion=60,
+            hora_preferida_inicio=360,    # 06:00
+            hora_preferida_fin=1320,      # 22:00
+        )
+        solicitud = SolicitudHorario(
+            actividades_fijas=[],
+            actividades_optimizables=[task],
+            contexto_usuario=_make_ctx(horario_inicio=480, horario_fin=720),
+        )
+        optimizer = ScheduleOptimizer(timeout_seconds=5)
+        result = optimizer.generar(solicitud)
+
+        assert result.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE)
+        block = next(b for b in result.bloques if b.id_actividad == "t1")
+        # Should be clamped to user schedule: 480–720
+        assert block.hora_inicio >= 480, (
+            f"Should start at or after 08:00, got {block.hora_inicio}"
+        )
+        assert block.hora_fin <= 720, (
+            f"Should end at or before 12:00, got {block.hora_fin}"
+        )
