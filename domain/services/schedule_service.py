@@ -349,65 +349,30 @@ class ScheduleOptimizer(AbstractSchedulerService):
             fin = ctx.horario_fin[dia]
 
             if is_crossing(inicio, fin):
-                # ── Crossing window: split into two segments ──
-                # Segment 1: [inicio, 1440) with pref_inicio applied to start
-                s1_start = inicio
-                s1_end = 1440
+                # ── Contiguous crossing window ──
+                day_start = inicio
+                day_end = fin + 1440
+
                 if act.hora_preferida_inicio is not None:
-                    s1_start = max(s1_start, act.hora_preferida_inicio)
+                    pref_start = act.hora_preferida_inicio
+                    if pref_start < inicio:
+                        pref_start += 1440
+                    day_start = max(day_start, pref_start)
 
-                # Segment 2: [0, fin) with pref_fin applied to end
-                s2_start = 0
-                s2_end = fin
                 if act.hora_preferida_fin is not None:
-                    s2_end = min(s2_end, act.hora_preferida_fin)
+                    pref_end = act.hora_preferida_fin
+                    if pref_end < inicio:
+                        pref_end += 1440
+                    day_end = min(day_end, pref_end)
 
-                # Segment 1 vars
-                p1 = model.NewBoolVar(f"p_{act.id}_d{dia}_s1")
-                seg1_ok = dur <= (s1_end - s1_start)
-                if seg1_ok:
-                    s1 = model.NewIntVar(s1_start, s1_end - dur, f"s_{act.id}_d{dia}_s1")
-                    e1 = model.NewIntVar(s1_start + dur, s1_end, f"e_{act.id}_d{dia}_s1")
-                    iv1 = model.NewOptionalIntervalVar(
-                        dia * 1440 + s1, dur, dia * 1440 + e1, p1, f"iv_{act.id}_d{dia}_s1",
-                    )
-                    state["intervals_abs"].append(iv1)
-                else:
-                    model.Add(p1 == 0)
-
-                # Segment 2 vars
-                p2 = model.NewBoolVar(f"p_{act.id}_d{dia}_s2")
-                seg2_ok = dur <= (s2_end - s2_start)
-                if seg2_ok:
-                    s2 = model.NewIntVar(s2_start, s2_end - dur, f"s_{act.id}_d{dia}_s2")
-                    e2 = model.NewIntVar(s2_start + dur, s2_end, f"e_{act.id}_d{dia}_s2")
-                    iv2 = model.NewOptionalIntervalVar(
-                        dia * 1440 + s2, dur, dia * 1440 + e2, p2, f"iv_{act.id}_d{dia}_s2",
-                    )
-                    state["intervals_abs"].append(iv2)
-                else:
-                    model.Add(p2 == 0)
-
-                # Combined day variable
                 p = model.NewBoolVar(f"p_{act.id}_d{dia}")
-                model.Add(p == p1 + p2)
-
-                # Merged s/e (correct for whichever segment is active)
-                s = model.NewIntVar(0, 1440, f"s_{act.id}_d{dia}_m")
-                e = model.NewIntVar(0, 1440, f"e_{act.id}_d{dia}_m")
-                if seg1_ok:
-                    model.Add(s == s1).OnlyEnforceIf(p1)
-                    model.Add(e == e1).OnlyEnforceIf(p1)
-                if seg2_ok:
-                    model.Add(s == s2).OnlyEnforceIf(p2)
-                    model.Add(e == e2).OnlyEnforceIf(p2)
-
-                v_entry: dict = {"p": p, "s": s, "e": e}
-                if seg1_ok:
-                    v_entry["seg1"] = {"p": p1, "s": s1, "e": e1}
-                if seg2_ok:
-                    v_entry["seg2"] = {"p": p2, "s": s2, "e": e2}
-                info["vars"][dia] = v_entry
+                s = model.NewIntVar(day_start, day_end - dur, f"s_{act.id}_d{dia}")
+                e = model.NewIntVar(day_start + dur, day_end, f"e_{act.id}_d{dia}")
+                iv = model.NewOptionalIntervalVar(
+                    dia * 1440 + s, dur, dia * 1440 + e, p, f"iv_{act.id}_d{dia}"
+                )
+                state["intervals_abs"].append(iv)
+                info["vars"][dia] = {"p": p, "s": s, "e": e}
                 all_p.append(p)
 
             else:
@@ -551,10 +516,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
             terms.append(excess * w)
 
     def _rb_03(self, model, ctx, state, terms):
-        """RB-03: penalizar fuera del horario preferido (primera/última hora).
-
-        For crossing windows, uses per-segment early/late thresholds.
-        """
+        """RB-03: penalizar fuera del horario preferido (primera/última hora)."""
         w = self.weights.rb_03
         if w == 0:
             return
@@ -563,59 +525,20 @@ class ScheduleOptimizer(AbstractSchedulerService):
                 inicio = ctx.horario_inicio[dia]
                 fin = ctx.horario_fin[dia]
 
-                if is_crossing(inicio, fin) and ("seg1" in v or "seg2" in v):
-                    # ── Crossing window: per-segment thresholds ──
-                    seg_early_vars: list = []
-                    seg_late_vars: list = []
+                early_thr = inicio + 60
+                late_thr = (fin + 1440) - 60 if is_crossing(inicio, fin) else fin - 60
+                early = model.NewBoolVar(f"rb03_early_{tid}_d{dia}")
+                late = model.NewBoolVar(f"rb03_late_{tid}_d{dia}")
+                model.Add(v["s"] < early_thr).OnlyEnforceIf(early)
+                model.Add(v["s"] >= early_thr).OnlyEnforceIf(early.Not())
+                model.Add(v["e"] > late_thr).OnlyEnforceIf(late)
+                model.Add(v["e"] <= late_thr).OnlyEnforceIf(late.Not())
 
-                    if "seg1" in v:
-                        s1 = v["seg1"]
-                        early_thr_s1 = inicio + 60
-                        late_thr_s1 = 1380  # 1440 - 60
-                        early_s1 = model.NewBoolVar(f"rb03_early_{tid}_d{dia}_s1")
-                        late_s1 = model.NewBoolVar(f"rb03_late_{tid}_d{dia}_s1")
-                        model.Add(s1["s"] < early_thr_s1).OnlyEnforceIf(early_s1)
-                        model.Add(s1["s"] >= early_thr_s1).OnlyEnforceIf(early_s1.Not())
-                        model.Add(s1["e"] > late_thr_s1).OnlyEnforceIf(late_s1)
-                        model.Add(s1["e"] <= late_thr_s1).OnlyEnforceIf(late_s1.Not())
-                        seg_early_vars.append(early_s1)
-                        seg_late_vars.append(late_s1)
-
-                    if "seg2" in v:
-                        s2 = v["seg2"]
-                        late_thr_s2 = max(0, fin - 60)
-                        late_s2 = model.NewBoolVar(f"rb03_late_{tid}_d{dia}_s2")
-                        model.Add(s2["e"] > late_thr_s2).OnlyEnforceIf(late_s2)
-                        model.Add(s2["e"] <= late_thr_s2).OnlyEnforceIf(late_s2.Not())
-                        seg_late_vars.append(late_s2)
-
-                    # Penalty per early/late BoolVar, gated by v["p"]
-                    for idx, ev in enumerate(seg_early_vars):
-                        term = model.NewIntVar(0, w, f"rb03_early_pen_{tid}_d{dia}_{idx}")
-                        model.Add(term == w).OnlyEnforceIf([v["p"], ev])
-                        model.Add(term == 0).OnlyEnforceIf(v["p"].Not())
-                        terms.append(term)
-                    for idx, lv in enumerate(seg_late_vars):
-                        term = model.NewIntVar(0, w, f"rb03_late_pen_{tid}_d{dia}_{idx}")
-                        model.Add(term == w).OnlyEnforceIf([v["p"], lv])
-                        model.Add(term == 0).OnlyEnforceIf(v["p"].Not())
-                        terms.append(term)
-                else:
-                    # ── Non-crossing window: current behavior ──
-                    early_thr = inicio + 60
-                    late_thr = fin - 60
-                    early = model.NewBoolVar(f"rb03_early_{tid}_d{dia}")
-                    late = model.NewBoolVar(f"rb03_late_{tid}_d{dia}")
-                    model.Add(v["s"] < early_thr).OnlyEnforceIf(early)
-                    model.Add(v["s"] >= early_thr).OnlyEnforceIf(early.Not())
-                    model.Add(v["e"] > late_thr).OnlyEnforceIf(late)
-                    model.Add(v["e"] <= late_thr).OnlyEnforceIf(late.Not())
-
-                    pen = model.NewIntVar(0, w, f"rb03_pen_{tid}_d{dia}")
-                    model.Add(pen == w).OnlyEnforceIf([v["p"], early])
-                    model.Add(pen == w).OnlyEnforceIf([v["p"], late])
-                    model.Add(pen == 0).OnlyEnforceIf(v["p"].Not())
-                    terms.append(pen)
+                pen = model.NewIntVar(0, w, f"rb03_pen_{tid}_d{dia}")
+                model.Add(pen == w).OnlyEnforceIf([v["p"], early])
+                model.Add(pen == w).OnlyEnforceIf([v["p"], late])
+                model.Add(pen == 0).OnlyEnforceIf(v["p"].Not())
+                terms.append(pen)
 
     def _rb_04(self, model, ctx, state, terms):
         """RB-04: penalizar tiempo muerto total en el día."""
@@ -644,11 +567,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
             terms.append(idle * w)
 
     def _rb_05(self, model, ctx, state, terms):
-        """RB-05: penalizar tarea difícil después de mucho trabajo continuo.
-
-        For crossing windows, uses an after_midnight BoolVar to compute
-        the correct work_before when the task starts post-midnight.
-        """
+        """RB-05: penalizar tarea difícil después de mucho trabajo continuo."""
         w = self.weights.rb_05
         if w == 0:
             return
@@ -663,17 +582,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
                 effective_range = abs_duration(inicio, fin)
 
                 work_before = model.NewIntVar(0, effective_range, f"rb05_wb_{tid}_d{dia}")
-
-                if is_crossing(inicio, fin):
-                    # Crossing window: detect post-midnight placement
-                    after_midnight = model.NewBoolVar(f"rb05_am_{tid}_d{dia}")
-                    model.Add(v["s"] < inicio).OnlyEnforceIf(after_midnight)
-                    model.Add(v["s"] >= inicio).OnlyEnforceIf(after_midnight.Not())
-                    # work_before = s - inicio + (1440 if after_midnight else 0)
-                    model.Add(work_before == v["s"] - inicio + 1440 * after_midnight).OnlyEnforceIf(v["p"])
-                else:
-                    model.Add(work_before == v["s"] - inicio).OnlyEnforceIf(v["p"])
-
+                model.Add(work_before == v["s"] - inicio).OnlyEnforceIf(v["p"])
                 model.Add(work_before == 0).OnlyEnforceIf(v["p"].Not())
                 excess = model.NewIntVar(0, max(600, effective_range - 240), f"rb05_ex_{tid}_d{dia}")
                 model.Add(work_before <= 240 + excess)
@@ -1058,8 +967,8 @@ class ScheduleOptimizer(AbstractSchedulerService):
                             nombre=info["nombre"],
                             tipo=info["tipo"],
                             dia=dia,
-                            hora_inicio=solver.Value(v["s"]),
-                            hora_fin=solver.Value(v["e"]),
+                            hora_inicio=solver.Value(v["s"]) % 1440,
+                            hora_fin=solver.Value(v["e"]) % 1440,
                             ubicacion_id=info["loc"],
                         )
                     )
