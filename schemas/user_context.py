@@ -3,7 +3,7 @@ from pydantic import BaseModel, field_validator
 from schemas.activity import PatronEnergia
 
 
-class BloqueSueno(BaseModel):
+class DreamBlock(BaseModel):
     dia: int
     inicio: int
     fin: int
@@ -20,7 +20,7 @@ class ContextoUsuario(BaseModel):
     nivel_energia: int = 2
     horario_inicio: int | list[int] = 480
     horario_fin: int | list[int] = 1200
-    bloques_sueno: list[BloqueSueno] = []
+    dream_blocks: list[DreamBlock] = []
     historial_energia: list[RegistroEnergia] = []
     patron_energia_manual: PatronEnergia | None = None
 

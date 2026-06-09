@@ -14,6 +14,7 @@ from domain.services.time_utils import (
     MAX_SLEEP_MINUTES,
     MINUTES_PER_DAY,
     abs_duration,
+    is_crossing,
     to_abs,
     to_abs_minutes,
 )
@@ -72,9 +73,12 @@ class ScheduleOptimizer(AbstractSchedulerService):
                 f"(dia_inicio={dia_inicio} + dias_totales={dias_totales})."
             )
 
+        # Infer dream blocks from horario_inicio/fin if none explicitly provided
+        self._infer_dream_blocks(ctx, dia_inicio, dias_totales)
+
         self._validate_fixed_overlaps(solicitud.actividades_fijas)
         self._validate_task_duration(solicitud.actividades_optimizables, ctx, dia_inicio, dias_totales)
-        self._validate_consistency(solicitud.actividades_fijas, ctx.bloques_sueno, solicitud.actividades_optimizables, ctx, dia_inicio, dias_totales, omitido_weight=self.weights.omitido)
+        self._validate_consistency(solicitud.actividades_fijas, ctx.dream_blocks, solicitud.actividades_optimizables, ctx, dia_inicio, dias_totales, omitido_weight=self.weights.omitido)
 
         model = cp_model.CpModel()
 
@@ -97,7 +101,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
                 "num_flex": len(solicitud.actividades_optimizables),
                 "total_flex_min": sum(a.duracion_estimada for a in solicitud.actividades_optimizables),
                 "num_fixed": len(solicitud.actividades_fijas),
-                "num_sleep": len(ctx.bloques_sueno),
+                "num_sleep": len(ctx.dream_blocks),
                 "patron": patron.value,
                 "horario_inicio": ctx.horario_inicio[0],
                 "horario_fin": ctx.horario_fin[0],
@@ -106,7 +110,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
         }
 
         # RD-06: bloques de sueño
-        self._add_sleep_blocks(model, ctx.bloques_sueno, state)
+        self._add_sleep_blocks(model, ctx.dream_blocks, state)
 
         # RD-02 / RD-03: actividades fijas
         for act in solicitud.actividades_fijas:
@@ -172,10 +176,48 @@ class ScheduleOptimizer(AbstractSchedulerService):
         return lookup
 
     @staticmethod
-    def _add_sleep_blocks(model, bloques, state):
+    def _infer_dream_blocks(ctx, dia_inicio: int, dias_totales: int) -> None:
+        """Infer dream blocks from horario_inicio/fin when none provided.
+
+        Only infers for crossing windows (fin <= inicio) — the complement
+        of a crossing active window is a contiguous block that genuinely
+        represents sleep time.
+
+        For non-crossing windows the complement is split across midnight
+        and may include leisure, family time, etc., not just sleep.
+
+        Skips inference when the inferred block exceeds MAX_SLEEP_MINUTES
+        (e.g., a 90-min active window would imply 1350 min of "sleep").
+        """
+        if ctx.dream_blocks:
+            return  # explicit blocks → use as-is
+
+        from domain.entities.user_context import DreamBlock
+        from domain.services.time_utils import (
+            MAX_SLEEP_MINUTES,
+            abs_duration,
+            is_crossing,
+        )
+
+        for d in range(dia_inicio, dia_inicio + dias_totales):
+            wake = ctx.horario_inicio[d]
+            bed = ctx.horario_fin[d]
+
+            if not is_crossing(wake, bed):
+                continue  # non-crossing: complement is not necessarily sleep
+
+            # The complement of a crossing active window is [bed, wake)
+            dream_dur = abs_duration(bed, wake)
+            if dream_dur > MAX_SLEEP_MINUTES:
+                continue  # unreasonably long → not really a sleep block
+
+            ctx.dream_blocks.append(DreamBlock(dia=d, inicio=bed, fin=wake))
+
+    @staticmethod
+    def _add_sleep_blocks(model, dream_blocks, state):
         dia_inicio = state["meta"]["dia_inicio"]
         dias_totales = state["meta"]["dias_totales"]
-        for s in bloques:
+        for s in dream_blocks:
             if not (dia_inicio <= s.dia < dia_inicio + dias_totales):
                 continue
             abs_start = s.dia * 1440 + s.inicio
@@ -223,10 +265,26 @@ class ScheduleOptimizer(AbstractSchedulerService):
         dia_inicio = state["meta"]["dia_inicio"]
         dias_totales = state["meta"]["dias_totales"]
         for dia in range(dia_inicio, dia_inicio + dias_totales):
+            inicio = ctx.horario_inicio[dia]
+            fin = ctx.horario_fin[dia]
             p = model.NewBoolVar(f"rest_p_d{dia}")
             dur = MIN_REST_BLOCK_MINUTES
-            s = model.NewIntVar(ctx.horario_inicio[dia], ctx.horario_fin[dia] - dur, f"rest_s_d{dia}")
-            e = model.NewIntVar(ctx.horario_inicio[dia] + dur, ctx.horario_fin[dia], f"rest_e_d{dia}")
+
+            if is_crossing(inicio, fin):
+                # Crossing window: place rest in segment that fits
+                seg1_len = 1440 - inicio
+                if dur <= seg1_len:
+                    # Segment 1 [inicio, 1440) fits the rest block
+                    s = model.NewIntVar(inicio, 1440 - dur, f"rest_s_d{dia}")
+                    e = model.NewIntVar(inicio + dur, 1440, f"rest_e_d{dia}")
+                else:
+                    # Fallback to segment 2 [0, fin)
+                    s = model.NewIntVar(0, fin - dur, f"rest_s_d{dia}")
+                    e = model.NewIntVar(dur, fin, f"rest_e_d{dia}")
+            else:
+                s = model.NewIntVar(inicio, fin - dur, f"rest_s_d{dia}")
+                e = model.NewIntVar(inicio + dur, fin, f"rest_e_d{dia}")
+
             iv = model.NewOptionalIntervalVar(dia * 1440 + s, dur, dia * 1440 + e, p, f"rest_iv_d{dia}")
             state["intervals_abs"].append(iv)
             model.Add(p == 1)
@@ -287,21 +345,87 @@ class ScheduleOptimizer(AbstractSchedulerService):
         state["flex"][act.id] = info
 
         for dia in days:
-            # Ventana efectiva por día: intersección del horario del usuario con la preferencia de la tarea
-            day_start = ctx.horario_inicio[dia]
-            day_end = ctx.horario_fin[dia]
-            if act.hora_preferida_inicio is not None:
-                day_start = max(day_start, act.hora_preferida_inicio)
-            if act.hora_preferida_fin is not None:
-                day_end = min(day_end, act.hora_preferida_fin)
+            inicio = ctx.horario_inicio[dia]
+            fin = ctx.horario_fin[dia]
 
-            p = model.NewBoolVar(f"p_{act.id}_d{dia}")
-            s = model.NewIntVar(day_start, day_end - dur, f"s_{act.id}_d{dia}")
-            e = model.NewIntVar(day_start + dur, day_end, f"e_{act.id}_d{dia}")
-            iv = model.NewOptionalIntervalVar(dia * 1440 + s, dur, dia * 1440 + e, p, f"iv_{act.id}_d{dia}")
-            state["intervals_abs"].append(iv)
-            info["vars"][dia] = {"p": p, "s": s, "e": e}
-            all_p.append(p)
+            if is_crossing(inicio, fin):
+                # ── Crossing window: split into two segments ──
+                # Segment 1: [inicio, 1440) with pref_inicio applied to start
+                s1_start = inicio
+                s1_end = 1440
+                if act.hora_preferida_inicio is not None:
+                    s1_start = max(s1_start, act.hora_preferida_inicio)
+
+                # Segment 2: [0, fin) with pref_fin applied to end
+                s2_start = 0
+                s2_end = fin
+                if act.hora_preferida_fin is not None:
+                    s2_end = min(s2_end, act.hora_preferida_fin)
+
+                # Segment 1 vars
+                p1 = model.NewBoolVar(f"p_{act.id}_d{dia}_s1")
+                seg1_ok = dur <= (s1_end - s1_start)
+                if seg1_ok:
+                    s1 = model.NewIntVar(s1_start, s1_end - dur, f"s_{act.id}_d{dia}_s1")
+                    e1 = model.NewIntVar(s1_start + dur, s1_end, f"e_{act.id}_d{dia}_s1")
+                    iv1 = model.NewOptionalIntervalVar(
+                        dia * 1440 + s1, dur, dia * 1440 + e1, p1, f"iv_{act.id}_d{dia}_s1",
+                    )
+                    state["intervals_abs"].append(iv1)
+                else:
+                    model.Add(p1 == 0)
+
+                # Segment 2 vars
+                p2 = model.NewBoolVar(f"p_{act.id}_d{dia}_s2")
+                seg2_ok = dur <= (s2_end - s2_start)
+                if seg2_ok:
+                    s2 = model.NewIntVar(s2_start, s2_end - dur, f"s_{act.id}_d{dia}_s2")
+                    e2 = model.NewIntVar(s2_start + dur, s2_end, f"e_{act.id}_d{dia}_s2")
+                    iv2 = model.NewOptionalIntervalVar(
+                        dia * 1440 + s2, dur, dia * 1440 + e2, p2, f"iv_{act.id}_d{dia}_s2",
+                    )
+                    state["intervals_abs"].append(iv2)
+                else:
+                    model.Add(p2 == 0)
+
+                # Combined day variable
+                p = model.NewBoolVar(f"p_{act.id}_d{dia}")
+                model.Add(p == p1 + p2)
+
+                # Merged s/e (correct for whichever segment is active)
+                s = model.NewIntVar(0, 1440, f"s_{act.id}_d{dia}_m")
+                e = model.NewIntVar(0, 1440, f"e_{act.id}_d{dia}_m")
+                if seg1_ok:
+                    model.Add(s == s1).OnlyEnforceIf(p1)
+                    model.Add(e == e1).OnlyEnforceIf(p1)
+                if seg2_ok:
+                    model.Add(s == s2).OnlyEnforceIf(p2)
+                    model.Add(e == e2).OnlyEnforceIf(p2)
+
+                v_entry: dict = {"p": p, "s": s, "e": e}
+                if seg1_ok:
+                    v_entry["seg1"] = {"p": p1, "s": s1, "e": e1}
+                if seg2_ok:
+                    v_entry["seg2"] = {"p": p2, "s": s2, "e": e2}
+                info["vars"][dia] = v_entry
+                all_p.append(p)
+
+            else:
+                # ── Non-crossing window: current behavior unchanged ──
+                day_start = inicio
+                day_end = fin
+                if act.hora_preferida_inicio is not None:
+                    day_start = max(day_start, act.hora_preferida_inicio)
+                if act.hora_preferida_fin is not None:
+                    day_end = min(day_end, act.hora_preferida_fin)
+
+                p = model.NewBoolVar(f"p_{act.id}_d{dia}")
+                s = model.NewIntVar(day_start, day_end - dur, f"s_{act.id}_d{dia}")
+                e = model.NewIntVar(day_start + dur, day_end, f"e_{act.id}_d{dia}")
+                iv = model.NewOptionalIntervalVar(dia * 1440 + s, dur, dia * 1440 + e, p, f"iv_{act.id}_d{dia}")
+                state["intervals_abs"].append(iv)
+                info["vars"][dia] = {"p": p, "s": s, "e": e}
+                all_p.append(p)
 
         # RD-05: como máximo un día (F9: permite omitir tareas si es inviable)
         model.Add(sum(all_p) <= 1)
@@ -419,33 +543,79 @@ class ScheduleOptimizer(AbstractSchedulerService):
                 contribs.append(part)
             if not contribs:
                 continue
-            total = model.NewIntVar(0, ctx.horario_fin[dia] - ctx.horario_inicio[dia], f"rb02_t_d{dia}")
+            effective_range = abs_duration(ctx.horario_inicio[dia], ctx.horario_fin[dia])
+            total = model.NewIntVar(0, effective_range, f"rb02_t_d{dia}")
             model.Add(total == sum(contribs))
-            excess = model.NewIntVar(0, 600, f"rb02_x_d{dia}")
+            excess = model.NewIntVar(0, max(600, effective_range - 360), f"rb02_x_d{dia}")
             model.Add(total <= 360 + excess)
             terms.append(excess * w)
 
     def _rb_03(self, model, ctx, state, terms):
-        """RB-03: penalizar fuera del horario preferido (primera/última hora)."""
+        """RB-03: penalizar fuera del horario preferido (primera/última hora).
+
+        For crossing windows, uses per-segment early/late thresholds.
+        """
         w = self.weights.rb_03
         if w == 0:
             return
         for tid, info in state["flex"].items():
             for dia, v in info["vars"].items():
-                early_thr = ctx.horario_inicio[dia] + 60
-                late_thr = ctx.horario_fin[dia] - 60
-                early = model.NewBoolVar(f"rb03_early_{tid}_d{dia}")
-                late = model.NewBoolVar(f"rb03_late_{tid}_d{dia}")
-                model.Add(v["s"] < early_thr).OnlyEnforceIf(early)
-                model.Add(v["s"] >= early_thr).OnlyEnforceIf(early.Not())
-                model.Add(v["e"] > late_thr).OnlyEnforceIf(late)
-                model.Add(v["e"] <= late_thr).OnlyEnforceIf(late.Not())
+                inicio = ctx.horario_inicio[dia]
+                fin = ctx.horario_fin[dia]
 
-                pen = model.NewIntVar(0, w, f"rb03_pen_{tid}_d{dia}")
-                model.Add(pen == w).OnlyEnforceIf([v["p"], early])
-                model.Add(pen == w).OnlyEnforceIf([v["p"], late])
-                model.Add(pen == 0).OnlyEnforceIf(v["p"].Not())
-                terms.append(pen)
+                if is_crossing(inicio, fin) and ("seg1" in v or "seg2" in v):
+                    # ── Crossing window: per-segment thresholds ──
+                    seg_early_vars: list = []
+                    seg_late_vars: list = []
+
+                    if "seg1" in v:
+                        s1 = v["seg1"]
+                        early_thr_s1 = inicio + 60
+                        late_thr_s1 = 1380  # 1440 - 60
+                        early_s1 = model.NewBoolVar(f"rb03_early_{tid}_d{dia}_s1")
+                        late_s1 = model.NewBoolVar(f"rb03_late_{tid}_d{dia}_s1")
+                        model.Add(s1["s"] < early_thr_s1).OnlyEnforceIf(early_s1)
+                        model.Add(s1["s"] >= early_thr_s1).OnlyEnforceIf(early_s1.Not())
+                        model.Add(s1["e"] > late_thr_s1).OnlyEnforceIf(late_s1)
+                        model.Add(s1["e"] <= late_thr_s1).OnlyEnforceIf(late_s1.Not())
+                        seg_early_vars.append(early_s1)
+                        seg_late_vars.append(late_s1)
+
+                    if "seg2" in v:
+                        s2 = v["seg2"]
+                        late_thr_s2 = max(0, fin - 60)
+                        late_s2 = model.NewBoolVar(f"rb03_late_{tid}_d{dia}_s2")
+                        model.Add(s2["e"] > late_thr_s2).OnlyEnforceIf(late_s2)
+                        model.Add(s2["e"] <= late_thr_s2).OnlyEnforceIf(late_s2.Not())
+                        seg_late_vars.append(late_s2)
+
+                    # Penalty per early/late BoolVar, gated by v["p"]
+                    for idx, ev in enumerate(seg_early_vars):
+                        term = model.NewIntVar(0, w, f"rb03_early_pen_{tid}_d{dia}_{idx}")
+                        model.Add(term == w).OnlyEnforceIf([v["p"], ev])
+                        model.Add(term == 0).OnlyEnforceIf(v["p"].Not())
+                        terms.append(term)
+                    for idx, lv in enumerate(seg_late_vars):
+                        term = model.NewIntVar(0, w, f"rb03_late_pen_{tid}_d{dia}_{idx}")
+                        model.Add(term == w).OnlyEnforceIf([v["p"], lv])
+                        model.Add(term == 0).OnlyEnforceIf(v["p"].Not())
+                        terms.append(term)
+                else:
+                    # ── Non-crossing window: current behavior ──
+                    early_thr = inicio + 60
+                    late_thr = fin - 60
+                    early = model.NewBoolVar(f"rb03_early_{tid}_d{dia}")
+                    late = model.NewBoolVar(f"rb03_late_{tid}_d{dia}")
+                    model.Add(v["s"] < early_thr).OnlyEnforceIf(early)
+                    model.Add(v["s"] >= early_thr).OnlyEnforceIf(early.Not())
+                    model.Add(v["e"] > late_thr).OnlyEnforceIf(late)
+                    model.Add(v["e"] <= late_thr).OnlyEnforceIf(late.Not())
+
+                    pen = model.NewIntVar(0, w, f"rb03_pen_{tid}_d{dia}")
+                    model.Add(pen == w).OnlyEnforceIf([v["p"], early])
+                    model.Add(pen == w).OnlyEnforceIf([v["p"], late])
+                    model.Add(pen == 0).OnlyEnforceIf(v["p"].Not())
+                    terms.append(pen)
 
     def _rb_04(self, model, ctx, state, terms):
         """RB-04: penalizar tiempo muerto total en el día."""
@@ -455,7 +625,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
         if getattr(self, "_patron_override", None) == PatronEnergia.CRONICO:
             w = max(1, int(w * 0.5))
         for dia in range(state["meta"]["dia_inicio"], state["meta"]["dia_inicio"] + state["meta"]["dias_totales"]):
-            day_range = ctx.horario_fin[dia] - ctx.horario_inicio[dia]
+            day_range = abs_duration(ctx.horario_inicio[dia], ctx.horario_fin[dia])
             contribs: list = []
             for info in state["flex"].values():
                 if dia not in info["vars"]:
@@ -474,7 +644,11 @@ class ScheduleOptimizer(AbstractSchedulerService):
             terms.append(idle * w)
 
     def _rb_05(self, model, ctx, state, terms):
-        """RB-05: penalizar tarea difícil después de mucho trabajo continuo."""
+        """RB-05: penalizar tarea difícil después de mucho trabajo continuo.
+
+        For crossing windows, uses an after_midnight BoolVar to compute
+        the correct work_before when the task starts post-midnight.
+        """
         w = self.weights.rb_05
         if w == 0:
             return
@@ -484,10 +658,24 @@ class ScheduleOptimizer(AbstractSchedulerService):
             if info["dificultad"] != Dificultad.ALTA:
                 continue
             for dia, v in info["vars"].items():
-                work_before = model.NewIntVar(0, ctx.horario_fin[dia] - ctx.horario_inicio[dia], f"rb05_wb_{tid}_d{dia}")
-                model.Add(work_before == v["s"] - ctx.horario_inicio[dia]).OnlyEnforceIf(v["p"])
+                inicio = ctx.horario_inicio[dia]
+                fin = ctx.horario_fin[dia]
+                effective_range = abs_duration(inicio, fin)
+
+                work_before = model.NewIntVar(0, effective_range, f"rb05_wb_{tid}_d{dia}")
+
+                if is_crossing(inicio, fin):
+                    # Crossing window: detect post-midnight placement
+                    after_midnight = model.NewBoolVar(f"rb05_am_{tid}_d{dia}")
+                    model.Add(v["s"] < inicio).OnlyEnforceIf(after_midnight)
+                    model.Add(v["s"] >= inicio).OnlyEnforceIf(after_midnight.Not())
+                    # work_before = s - inicio + (1440 if after_midnight else 0)
+                    model.Add(work_before == v["s"] - inicio + 1440 * after_midnight).OnlyEnforceIf(v["p"])
+                else:
+                    model.Add(work_before == v["s"] - inicio).OnlyEnforceIf(v["p"])
+
                 model.Add(work_before == 0).OnlyEnforceIf(v["p"].Not())
-                excess = model.NewIntVar(0, 600, f"rb05_ex_{tid}_d{dia}")
+                excess = model.NewIntVar(0, max(600, effective_range - 240), f"rb05_ex_{tid}_d{dia}")
                 model.Add(work_before <= 240 + excess)
                 terms.append(excess * w)
 
@@ -498,8 +686,9 @@ class ScheduleOptimizer(AbstractSchedulerService):
             return
         for tid, info in state["flex"].items():
             for dia, v in info["vars"].items():
-                mis = model.NewIntVar(0, ctx.horario_fin[dia] - ctx.horario_inicio[dia], f"rb06_mis_{tid}_d{dia}")
-                model.Add(mis >= (ctx.horario_fin[dia] - ctx.horario_inicio[dia]) - info["dur"] * 3).OnlyEnforceIf(v["p"])
+                effective_range = abs_duration(ctx.horario_inicio[dia], ctx.horario_fin[dia])
+                mis = model.NewIntVar(0, effective_range, f"rb06_mis_{tid}_d{dia}")
+                model.Add(mis >= effective_range - info["dur"] * 3).OnlyEnforceIf(v["p"])
                 model.Add(mis >= 0)
                 terms.append(mis * w)
 
@@ -653,7 +842,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
 
     @staticmethod
     def _validate_task_duration(actividades_optimizables, ctx, dia_inicio: int = 0, dias_totales: int = 7):
-        max_daily = max(ctx.horario_fin[d] - ctx.horario_inicio[d] for d in range(dia_inicio, dia_inicio + dias_totales))
+        max_daily = max(abs_duration(ctx.horario_inicio[d], ctx.horario_fin[d]) for d in range(dia_inicio, dia_inicio + dias_totales))
         for act in actividades_optimizables:
             if act.duracion_estimada > max_daily:
                 raise ValueError(
@@ -673,7 +862,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
     @staticmethod
     def _validate_consistency(
         actividades_fijas: list,
-        bloques_sueno: list,
+        dream_blocks: list,
         actividades_optimizables: list,
         ctx,
         dia_inicio: int = 0,
@@ -686,7 +875,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
         trivially infeasible.
         """
         # ── Sleep block duration ──────────────────────────────────
-        for s in bloques_sueno:
+        for s in dream_blocks:
             dur = abs_duration(s.inicio, s.fin)
             if dur > MAX_SLEEP_MINUTES:
                 raise ValueError(
@@ -697,7 +886,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
         # ── Sleep conflicts with fixed activities ─────────────────
         sleep_abs: list[tuple[str, int, int]] = [
             ("sleep", to_abs(s.dia, s.inicio), to_abs(s.dia, s.inicio) + abs_duration(s.inicio, s.fin))
-            for s in bloques_sueno
+            for s in dream_blocks
             if dia_inicio <= s.dia < dia_inicio + dias_totales
         ]
         fixed_abs: list[tuple[str, int, int]] = [
@@ -758,7 +947,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
             occupied_per_day[d] = occupied_per_day.get(d, 0) + (a_end - a_start)
 
         available_per_day = [
-            ctx.horario_fin[d] - ctx.horario_inicio[d] - occupied_per_day.get(d, 0)
+            abs_duration(ctx.horario_inicio[d], ctx.horario_fin[d]) - occupied_per_day.get(d, 0)
             for d in range(dia_inicio, dia_inicio + dias_totales)
         ]
 
@@ -814,7 +1003,9 @@ class ScheduleOptimizer(AbstractSchedulerService):
 
             if diag.get("num_flex", 0) > 0:
                 dias_totales = state.get("meta", {}).get("dias_totales", 7)
-                available = (diag.get("horario_fin", 1200) - diag.get("horario_inicio", 480)) * dias_totales
+                h_inicio = diag.get("horario_inicio", 480)
+                h_fin = diag.get("horario_fin", 1200)
+                available = abs_duration(h_inicio, h_fin) * dias_totales
                 if diag.get("total_flex_min", 0) > available:
                     tips.append(f"Las {diag['num_flex']} tareas pendientes requieren {diag['total_flex_min']} min en total, "
                                 f"pero el horario activo solo ofrece {available} min por semana. "

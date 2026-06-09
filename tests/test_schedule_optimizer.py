@@ -9,7 +9,7 @@ import pytest
 from domain.entities.activity import Actividad
 from domain.entities.enums import Dificultad, EstadoSolucion, TipoActividad
 from domain.entities.schedule_request import SolicitudHorario
-from domain.entities.user_context import BloqueSueno, ContextoUsuario, RegistroEnergia
+from domain.entities.user_context import DreamBlock, ContextoUsuario, RegistroEnergia
 from domain.services.schedule_service import PenaltyWeights, ScheduleOptimizer
 
 
@@ -53,14 +53,14 @@ def _make_ctx(
     nivel_energia: int = 2,
     horario_inicio: int = 480,
     horario_fin: int = 1200,
-    bloques_sueno: list[BloqueSueno] | None = None,
+    dream_blocks: list[DreamBlock] | None = None,
     historial: list[RegistroEnergia] | None = None,
 ) -> ContextoUsuario:
     return ContextoUsuario(
         nivel_energia=nivel_energia,
         horario_inicio=horario_inicio,
         horario_fin=horario_fin,
-        bloques_sueno=bloques_sueno or [],
+        dream_blocks=dream_blocks or [],
         historial_energia=historial or [],
     )
 
@@ -251,12 +251,12 @@ class TestEnergyPatterns:
 class TestSleepBlocks:
     def test_tasks_dont_overlap_sleep(self):
         """No task should be scheduled during sleep blocks."""
-        sleep = BloqueSueno(dia=0, inicio=0, fin=420)  # 00:00–07:00
+        sleep = DreamBlock(dia=0, inicio=0, fin=420)  # 00:00–07:00
         task = _make_task("t1", duracion=60)
         solicitud = SolicitudHorario(
             actividades_fijas=[],
             actividades_optimizables=[task],
-            contexto_usuario=_make_ctx(bloques_sueno=[sleep]),
+            contexto_usuario=_make_ctx(dream_blocks=[sleep]),
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
         result = optimizer.generar(solicitud)

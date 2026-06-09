@@ -4,6 +4,7 @@ from schemas.activity import Actividad
 from schemas.location import Ubicacion
 from schemas.travel_time import TiempoTraslado
 from schemas.user_context import ContextoUsuario
+from domain.services.time_utils import abs_duration
 
 
 class SolicitudHorario(BaseModel):
@@ -51,15 +52,25 @@ class SolicitudHorario(BaseModel):
                 f"pero se requieren {d_tot} (dias_totales)"
             )
 
-        # Validate each day: 0 <= inicio < fin <= 1440
+        # Validate each day: accepts crossing windows (fin <= inicio) as long as duration > 0
         for i in range(d_tot):
             inicio = ctx.horario_inicio[i]
             fin = ctx.horario_fin[i]
-            if not (0 <= inicio < fin <= 1440):
+            if not (0 <= inicio <= 1440):
                 raise ValueError(
                     f"Para el día {i} (relativo a dia_inicio), "
-                    f"horario_inicio ({inicio}) debe ser < horario_fin ({fin}) "
-                    f"y ambos deben estar entre 0 y 1440."
+                    f"horario_inicio ({inicio}) debe estar entre 0 y 1440."
+                )
+            if not (0 <= fin <= 1440):
+                raise ValueError(
+                    f"Para el día {i} (relativo a dia_inicio), "
+                    f"horario_fin ({fin}) debe estar entre 0 y 1440."
+                )
+            if abs_duration(inicio, fin) == 0:
+                raise ValueError(
+                    f"Para el día {i} (relativo a dia_inicio), "
+                    f"horario_inicio ({inicio}) y horario_fin ({fin}) "
+                    f"resultan en una duración cero."
                 )
 
         return self

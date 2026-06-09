@@ -64,7 +64,7 @@ class RescheduleService(AbstractRescheduleService):
                 nivel_energia=ctx.nivel_energia,
                 horario_inicio=ctx.horario_inicio,
                 horario_fin=ctx.horario_fin,
-                bloques_sueno=list(ctx.bloques_sueno),
+                dream_blocks=list(ctx.dream_blocks),
             ),
             dia_inicio=request.dia_inicio,
             dias_totales=request.dias_totales,

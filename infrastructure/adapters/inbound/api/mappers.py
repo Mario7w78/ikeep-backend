@@ -3,7 +3,7 @@ from schemas.location import Ubicacion as UbicacionDTO
 from schemas.reschedule_request import SolicitudReplanificacion as SolicitudReplanDTO
 from schemas.schedule_request import SolicitudHorario as SolicitudDTO
 from schemas.travel_time import TiempoTraslado as TiempoTrasladoDTO
-from schemas.user_context import BloqueSueno as BloqueSuenoDTO
+from schemas.user_context import DreamBlock as DreamBlockDTO
 from schemas.user_context import ContextoUsuario as ContextoDTO
 from schemas.user_context import RegistroEnergia as RegistroEnergiaDTO
 
@@ -13,7 +13,7 @@ from domain.entities.travel_time import TiempoTraslado as TiempoTrasladoDomain
 from domain.entities.reschedule_request import SolicitudReplanificacion as SolicitudReplanDomain
 from domain.entities.schedule_response import BloqueTiempo as BloqueTiempoDomain
 from domain.entities.schedule_response import RespuestaHorario as RespuestaDomain
-from domain.entities.user_context import BloqueSueno as BloqueSuenoDomain
+from domain.entities.user_context import DreamBlock as DreamBlockDomain
 from domain.entities.user_context import ContextoUsuario as ContextoDomain
 from domain.entities.user_context import RegistroEnergia as RegistroEnergiaDomain
 
@@ -57,8 +57,8 @@ def tiempo_traslado_to_domain(dto: TiempoTrasladoDTO) -> TiempoTrasladoDomain:
     )
 
 
-def bloque_sueno_to_domain(dto: BloqueSuenoDTO) -> BloqueSuenoDomain:
-    return BloqueSuenoDomain(dia=dto.dia, inicio=dto.inicio, fin=dto.fin)
+def dream_block_to_domain(dto: DreamBlockDTO) -> DreamBlockDomain:
+    return DreamBlockDomain(dia=dto.dia, inicio=dto.inicio, fin=dto.fin)
 
 
 def registro_energia_to_domain(dto: RegistroEnergiaDTO) -> RegistroEnergiaDomain:
@@ -75,7 +75,7 @@ def contexto_to_domain(dto: ContextoDTO) -> ContextoDomain:
         nivel_energia=dto.nivel_energia,
         horario_inicio=dto.horario_inicio,
         horario_fin=dto.horario_fin,
-        bloques_sueno=[bloque_sueno_to_domain(b) for b in dto.bloques_sueno],
+        dream_blocks=[dream_block_to_domain(b) for b in dto.dream_blocks],
         historial_energia=[registro_energia_to_domain(r) for r in dto.historial_energia],
         patron_energia_manual=dto.patron_energia_manual,
     )

@@ -48,6 +48,22 @@ def is_crossing(hora_inicio: int, hora_fin: int) -> bool:
     return hora_fin <= hora_inicio
 
 
+def effective_window_end(hora_inicio: int, hora_fin: int) -> int:
+    """Return effective end minute (day-relative, 0-2880) considering midnight crossing.
+
+    For a crossing window (e.g., 480, 60), returns 60 + 1440 = 1500,
+    allowing CP-SAT IntVar domains to be contiguous: [inicio, effective_end).
+    """
+    if hora_fin <= hora_inicio:
+        return hora_fin + MINUTES_PER_DAY
+    return hora_fin
+
+
+def effective_window_start(hora_inicio: int, hora_fin: int) -> int:
+    """Return effective start minute (same as inicio, clarifying API)."""
+    return hora_inicio
+
+
 def to_abs_minutes(dia: int, hora_inicio: int, hora_fin: int) -> tuple[int, int]:
     """Convenience: convert ``(dia, hora_inicio, hora_fin)`` to absolute
     ``(abs_start, abs_end)``.

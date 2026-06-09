@@ -1,0 +1,75 @@
+# openspec/config.yaml — SDD initialization for ikeep-backend
+schema: spec-driven
+
+project:
+  name: ikeep-backend
+  language: Python 3.13
+  web_framework: FastAPI 0.135.1
+  validation: Pydantic v2
+  di: dependency-injector 4.49.0
+  constraints: ortools CP-SAT 9.15
+  server: uvicorn 0.41.0
+  persistence_mode: openspec
+
+context: |
+  Python 3 / FastAPI backend for iKeep scheduling platform.
+  Clean/Hexagonal architecture: domain/ (entities, services, ports), infrastructure/ (adapters, config), schemas/ (Pydantic DTOs).
+  CP-SAT (ortools) for schedule optimization with penalty-based soft constraints (RB-01 through RB-10 + RB-PRIORITY).
+  Pydantic v2 schemas for API contracts, dependency-injector for wiring.
+  9 test files (pytest + httpx) covering scheduling, rescheduling, energy classification, middleware, API endpoints.
+  Existing SDD: dynamic-scheduling (spec.md), dynamic-scheduling-phase-3 (atl), energy-history (archived), horario-midnight-crossing (archived).
+
+testing:
+  strict_tdd: true
+  runner:
+    command: pytest
+    framework: pytest 9.0.3
+  layers:
+    unit:
+      available: true
+      tool: pytest
+    integration:
+      available: true
+      tool: pytest + httpx
+    e2e:
+      available: false
+      tool: null
+  coverage:
+    available: false
+    command: null
+  quality:
+    linter:
+      available: false
+      command: null
+    type_checker:
+      available: false
+      command: null
+    formatter:
+      available: false
+      command: null
+
+rules:
+  proposal:
+    - Include intent, scope bounds, and approach for every change
+    - Identify affected layers (domain, schemas, infrastructure, tests)
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Document CP-SAT formulation changes explicitly
+    - Include architecture decisions with rationale
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+  apply:
+    - Follow existing code patterns (Clean/Hexagonal)
+    - Write tests first (strict TDD enabled)
+    tdd: true
+    test_command: pytest
+  verify:
+    test_command: pytest
+    build_command: null
+    coverage_threshold: 0
+  archive:
+    - Merge delta specs into openspec/specs/ before archiving
+    - Warn before merging destructive deltas

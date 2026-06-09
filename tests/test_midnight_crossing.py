@@ -10,7 +10,7 @@ from domain.entities.activity import Actividad
 from domain.entities.enums import Dificultad, EstadoSolucion, TipoActividad
 from domain.entities.location import Ubicacion
 from domain.entities.schedule_request import SolicitudHorario
-from domain.entities.user_context import BloqueSueno, ContextoUsuario
+from domain.entities.user_context import DreamBlock, ContextoUsuario
 from domain.services.schedule_service import ScheduleOptimizer
 from domain.services.time_utils import (
     WEEK_MINUTES,
@@ -228,15 +228,15 @@ def test_fixed_activity_crossing_midnight():
 def test_sleep_block_crossing_midnight():
     """CP-SAT model with a sleep block crossing midnight.
 
-    BloqueSueno(dia=1, inicio=1380, fin=420) â†’ absolute [2820, 3300].
+    DreamBlock(dia=1, inicio=1380, fin=420) â†’ absolute [2820, 3300].
     A flex task must be scheduled alongside this sleep block.
     """
     ctx = ContextoUsuario(
         nivel_energia=3,
         horario_inicio=480,
         horario_fin=1200,
-        bloques_sueno=[
-            BloqueSueno(dia=1, inicio=1380, fin=420),
+        dream_blocks=[
+            DreamBlock(dia=1, inicio=1380, fin=420),
         ],
     )
     tareas = [
@@ -269,8 +269,8 @@ def test_sleep_block_crossing_midnight():
     flex_blocks = [b for b in response.bloques if b.id_actividad == "flex_task_1"]
     assert len(flex_blocks) == 1, "Flex task should be scheduled"
     block = flex_blocks[0]
-    assert block.hora_inicio >= ctx.horario_inicio[0]
-    assert block.hora_fin <= ctx.horario_fin[0]
+    assert block.hora_inicio >= ctx.horario_inicio[block.dia]
+    assert block.hora_fin <= ctx.horario_fin[block.dia]
     assert block.hora_fin - block.hora_inicio == 60, (
         f"Expected 60-minute flex task, got {block.hora_fin - block.hora_inicio}"
     )
@@ -293,8 +293,8 @@ def test_mixed_crossing_and_same_day():
         nivel_energia=3,
         horario_inicio=480,
         horario_fin=1200,
-        bloques_sueno=[
-            BloqueSueno(dia=1, inicio=1380, fin=420),
+        dream_blocks=[
+            DreamBlock(dia=1, inicio=1380, fin=420),
         ],
     )
     actividades_fijas = [
@@ -512,8 +512,8 @@ def test_sleep_block_exceeds_max_duration():
     ctx = ContextoUsuario(
         horario_inicio=480,
         horario_fin=1200,
-        bloques_sueno=[
-            BloqueSueno(dia=0, inicio=0, fin=1440),  # 24h sleep â†’ too long
+        dream_blocks=[
+            DreamBlock(dia=0, inicio=0, fin=1440),  # 24h sleep â†’ too long
         ],
     )
     request = SolicitudHorario(
@@ -530,8 +530,8 @@ def test_sleep_block_conflicts_with_fixed():
     ctx = ContextoUsuario(
         horario_inicio=480,
         horario_fin=1200,
-        bloques_sueno=[
-            BloqueSueno(dia=0, inicio=1380, fin=120),  # ~23:00-02:00
+        dream_blocks=[
+            DreamBlock(dia=0, inicio=1380, fin=120),  # ~23:00-02:00
         ],
     )
     actividades = [
@@ -558,7 +558,7 @@ def test_insufficient_capacity_raises():
     ctx = ContextoUsuario(
         horario_inicio=480,  # 08:00
         horario_fin=600,    # 10:00 â†’ only 120 min/day
-        bloques_sueno=[],
+        dream_blocks=[],
     )
     tareas = [
         Actividad(
@@ -578,3 +578,309 @@ def test_insufficient_capacity_raises():
     )
     with pytest.raises(ValueError, match="dura.*min.*solo.*min"):
         ScheduleOptimizer(timeout_seconds=1).generar(request)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Phase 1 — Schema & Arithmetic Fixes (R1–R5)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestSchemaCrossingPhase1:
+    """R1: Schema validation accepts/rejects crossing windows."""
+
+    def test_accepts_crossing(self):
+        """horario_inicio=480, horario_fin=60 should validate OK."""
+        from schemas.schedule_request import SolicitudHorario as PydanticSolicitud
+        from schemas.user_context import ContextoUsuario as PydanticCtx
+
+        solicitud = PydanticSolicitud(
+            actividades_fijas=[],
+            actividades_optimizables=[],
+            contexto_usuario=PydanticCtx(horario_inicio=480, horario_fin=60),
+        )
+        _ = solicitud  # should not raise
+
+    def test_accepts_normal_window(self):
+        """Same-day window (480, 1200) still works."""
+        from schemas.schedule_request import SolicitudHorario as PydanticSolicitud
+        from schemas.user_context import ContextoUsuario as PydanticCtx
+
+        solicitud = PydanticSolicitud(
+            actividades_fijas=[],
+            actividades_optimizables=[],
+            contexto_usuario=PydanticCtx(horario_inicio=480, horario_fin=1200),
+        )
+        _ = solicitud  # should not raise
+
+    def test_accepts_equal_nonzero_duration(self):
+        """Equal but crossing (0, 0) = 1440 min should validate OK."""
+        from schemas.schedule_request import SolicitudHorario as PydanticSolicitud
+        from schemas.user_context import ContextoUsuario as PydanticCtx
+
+        solicitud = PydanticSolicitud(
+            actividades_fijas=[],
+            actividades_optimizables=[],
+            contexto_usuario=PydanticCtx(horario_inicio=0, horario_fin=0),
+        )
+        _ = solicitud  # should not raise
+
+    def test_rejects_zero_duration(self):
+        """Zero-duration window (1440, 0) should raise ValueError."""
+        from schemas.schedule_request import SolicitudHorario as PydanticSolicitud
+        from schemas.user_context import ContextoUsuario as PydanticCtx
+
+        with pytest.raises(ValueError, match="duraci.n cero"):
+            PydanticSolicitud(
+                actividades_fijas=[],
+                actividades_optimizables=[],
+                contexto_usuario=PydanticCtx(horario_inicio=1440, horario_fin=0),
+            )
+
+    def test_rejects_out_of_range_inicio(self):
+        """inicio < 0 should raise ValueError."""
+        from schemas.schedule_request import SolicitudHorario as PydanticSolicitud
+        from schemas.user_context import ContextoUsuario as PydanticCtx
+
+        with pytest.raises(ValueError):
+            PydanticSolicitud(
+                actividades_fijas=[],
+                actividades_optimizables=[],
+                contexto_usuario=PydanticCtx(horario_inicio=-1, horario_fin=1200),
+            )
+
+    def test_rejects_out_of_range_fin(self):
+        """fin > 1440 should raise ValueError."""
+        from schemas.schedule_request import SolicitudHorario as PydanticSolicitud
+        from schemas.user_context import ContextoUsuario as PydanticCtx
+
+        with pytest.raises(ValueError):
+            PydanticSolicitud(
+                actividades_fijas=[],
+                actividades_optimizables=[],
+                contexto_usuario=PydanticCtx(horario_inicio=480, horario_fin=1441),
+            )
+
+
+class TestValidateTaskDurationPhase1:
+    """R2: _validate_task_duration uses effective window."""
+
+    def test_crossing_accepts_valid(self):
+        """600 min task in (480, 60) = 1020 effective window → OK."""
+        ctx = ContextoUsuario(horario_inicio=480, horario_fin=60)
+        tasks = [
+            Actividad(
+                id="t1", nombre="Test", tipo=TipoActividad.TAREA,
+                dia=0, hora_inicio=0, hora_fin=0,
+                duracion_estimada=600,
+                dificultad=Dificultad.MEDIA,
+            ),
+        ]
+        ScheduleOptimizer._validate_task_duration(tasks, ctx, 0, 7)
+
+    def test_crossing_rejects_excessive(self):
+        """1080 min task in (480, 60) = 1020 effective → error."""
+        ctx = ContextoUsuario(horario_inicio=480, horario_fin=60)
+        tasks = [
+            Actividad(
+                id="t1", nombre="Test", tipo=TipoActividad.TAREA,
+                dia=0, hora_inicio=0, hora_fin=0,
+                duracion_estimada=1080,
+                dificultad=Dificultad.MEDIA,
+            ),
+        ]
+        with pytest.raises(ValueError, match="solo.*min"):
+            ScheduleOptimizer._validate_task_duration(tasks, ctx, 0, 7)
+
+    def test_same_day_still_works(self):
+        """600 min task in (480, 1200) = 720 → OK."""
+        ctx = ContextoUsuario(horario_inicio=480, horario_fin=1200)
+        tasks = [
+            Actividad(
+                id="t1", nombre="Test", tipo=TipoActividad.TAREA,
+                dia=0, hora_inicio=0, hora_fin=0,
+                duracion_estimada=600,
+                dificultad=Dificultad.MEDIA,
+            ),
+        ]
+        ScheduleOptimizer._validate_task_duration(tasks, ctx, 0, 7)
+
+
+class TestValidateConsistencyPhase1:
+    """R3: _validate_consistency uses effective window."""
+
+    def test_crossing_available_per_day_positive(self):
+        """Crossing (480, 60) → each available_per_day = 1020, not negative."""
+        ctx = ContextoUsuario(horario_inicio=480, horario_fin=60)
+        tasks = [
+            Actividad(
+                id="t1", nombre="Test", tipo=TipoActividad.TAREA,
+                dia=0, hora_inicio=0, hora_fin=0,
+                duracion_estimada=600,
+                dificultad=Dificultad.MEDIA,
+            ),
+        ]
+        ScheduleOptimizer._validate_consistency(
+            [], [], tasks, ctx, 0, 7, omitido_weight=100000,
+        )
+
+    def test_normal_window_still_works(self):
+        """Normal (480, 1200) → still works identically."""
+        ctx = ContextoUsuario(horario_inicio=480, horario_fin=1200)
+        tasks = [
+            Actividad(
+                id="t1", nombre="Test", tipo=TipoActividad.TAREA,
+                dia=0, hora_inicio=0, hora_fin=0,
+                duracion_estimada=600,
+                dificultad=Dificultad.MEDIA,
+            ),
+        ]
+        ScheduleOptimizer._validate_consistency(
+            [], [], tasks, ctx, 0, 7, omitido_weight=100000,
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Phase 2 — CP‑SAT Crossing Window Integration (R6–R12)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_flex_task_crossing_midnight():
+    """R7: Flex task in crossing context (480, 60) should be feasible.
+
+    Effective window = 1020 min. 60‑min task fits in seg1.
+    """
+    ctx = ContextoUsuario(horario_inicio=480, horario_fin=60)
+    tareas = [
+        Actividad(
+            id="flex1", nombre="Crossing Flex", tipo=TipoActividad.TAREA,
+            duracion_estimada=60,
+            dificultad=Dificultad.MEDIA,
+            dia=0, hora_inicio=0, hora_fin=0,
+        ),
+    ]
+    request = SolicitudHorario(
+        actividades_fijas=[],
+        actividades_optimizables=tareas,
+        contexto_usuario=ctx,
+        dias_totales=1,
+    )
+    optimizer = ScheduleOptimizer(timeout_seconds=10)
+    response = optimizer.generar(request)
+
+    assert response.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE), (
+        f"Crossing window + flex task should be feasible, got {response.estado}"
+    )
+    assert len(response.bloques) == 1
+    block = response.bloques[0]
+    # Task must be in [480, 1440) (seg1) since 60‑min task can't fit in [0, 60)
+    # Task can be in seg1 [480, 1440) OR seg2 [0, 60)
+    in_seg1 = 480 <= block.hora_inicio < 1440
+    in_seg2 = 0 <= block.hora_inicio < 60
+    assert in_seg1 or in_seg2, (
+        f"Block hora_inicio={block.hora_inicio} not in seg1 [480,1440) "
+        f"or seg2 [0,60)"
+    )
+    assert block.hora_fin > block.hora_inicio, (
+        f"End {block.hora_fin} should be > start {block.hora_inicio}"
+    )
+    assert block.hora_fin - block.hora_inicio == 60, (
+        f"Duration should be 60 min, got {block.hora_fin - block.hora_inicio}"
+    )
+
+
+def test_flex_task_crossing_post_midnight():
+    """R7: Flex task in seg2 when seg1 is too small.
+
+    Window (1410, 60): seg1 = [1410, 1440) = 30 min.
+    30‑min task can fit in seg1 OR seg2 ([0, 60) = 60 min).
+    """
+    ctx = ContextoUsuario(horario_inicio=1410, horario_fin=60)
+    tareas = [
+        Actividad(
+            id="flex1", nombre="PostMid Flex", tipo=TipoActividad.TAREA,
+            duracion_estimada=30,
+            dificultad=Dificultad.MEDIA,
+            dia=0, hora_inicio=0, hora_fin=0,
+        ),
+    ]
+    request = SolicitudHorario(
+        actividades_fijas=[],
+        actividades_optimizables=tareas,
+        contexto_usuario=ctx,
+        dias_totales=1,
+    )
+    optimizer = ScheduleOptimizer(timeout_seconds=10)
+    response = optimizer.generar(request)
+
+    assert response.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE), (
+        f"Post-midnight flex task should be feasible, got {response.estado}"
+    )
+    assert len(response.bloques) == 1
+    block = response.bloques[0]
+    # Either seg1: [1410, 1440) with hora_inicio=1410, or seg2: [0, 60)
+    ok_ranges = (
+        (1410 <= block.hora_inicio < 1440) or (0 <= block.hora_inicio < 60)
+    )
+    assert ok_ranges, (
+        f"Block hora_inicio={block.hora_inicio} not in seg1 [1410,1440) "
+        f"or seg2 [0,60)"
+    )
+
+
+def test_rest_block_crossing():
+    """R6: Rest block (30 min) in crossing window (480, 60).
+
+    seg1 = [480, 1440) has 960 min → rest fits in seg1.
+    seg1 s ∈ [480, 1410), e ∈ [510, 1440).
+    """
+    ctx = ContextoUsuario(horario_inicio=480, horario_fin=60)
+    tareas = [
+        Actividad(
+            id="flex1", nombre="Flex", tipo=TipoActividad.TAREA,
+            duracion_estimada=60,
+            dificultad=Dificultad.BAJA,
+            dia=0, hora_inicio=0, hora_fin=0,
+        ),
+    ]
+    request = SolicitudHorario(
+        actividades_fijas=[],
+        actividades_optimizables=tareas,
+        contexto_usuario=ctx,
+        dias_totales=1,
+    )
+    optimizer = ScheduleOptimizer(timeout_seconds=10)
+    response = optimizer.generar(request)
+
+    assert response.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE), (
+        f"Rest block + crossing should be feasible, got {response.estado}"
+    )
+
+
+def test_crossing_default_window_identical():
+    """R12: Default window (480, 1200) produces identical results.
+
+    Non‑crossing window must not trigger the segment‑split code path.
+    """
+    ctx = ContextoUsuario(horario_inicio=480, horario_fin=1200)
+    tareas = [
+        Actividad(
+            id="flex1", nombre="Test", tipo=TipoActividad.TAREA,
+            duracion_estimada=60,
+            dificultad=Dificultad.MEDIA,
+            dia=0, hora_inicio=0, hora_fin=0,
+        ),
+    ]
+    request = SolicitudHorario(
+        actividades_fijas=[],
+        actividades_optimizables=tareas,
+        contexto_usuario=ctx,
+        dias_totales=1,
+    )
+    optimizer = ScheduleOptimizer(timeout_seconds=10)
+    response = optimizer.generar(request)
+
+    assert response.estado in (EstadoSolucion.OPTIMA, EstadoSolucion.FACTIBLE)
+    assert len(response.bloques) == 1
+    block = response.bloques[0]
+    assert 480 <= block.hora_inicio < 1200
+    assert block.hora_fin - block.hora_inicio == 60

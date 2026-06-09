@@ -13,7 +13,7 @@ from domain.entities.activity import Actividad
 from domain.entities.enums import Dificultad, EstadoSolucion, PatronEnergia, TipoActividad
 from domain.entities.schedule_request import SolicitudHorario
 from domain.entities.schedule_response import RespuestaHorario
-from domain.entities.user_context import BloqueSueno, ContextoUsuario
+from domain.entities.user_context import DreamBlock, ContextoUsuario
 from domain.services.schedule_service import PenaltyWeights, ScheduleOptimizer
 
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•

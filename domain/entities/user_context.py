@@ -4,7 +4,7 @@ from domain.entities.enums import PatronEnergia
 
 
 @dataclass
-class BloqueSueno:
+class DreamBlock:
     dia: int
     inicio: int
     fin: int
@@ -23,7 +23,7 @@ class ContextoUsuario:
     nivel_energia: int = 2
     horario_inicio: int | list[int] = 480
     horario_fin: int | list[int] = 1200
-    bloques_sueno: list[BloqueSueno] = field(default_factory=list)
+    dream_blocks: list[DreamBlock] = field(default_factory=list)
     historial_energia: list[RegistroEnergia] = field(default_factory=list)
     patron_energia_manual: PatronEnergia | None = None
 
