@@ -1,4 +1,4 @@
-﻿"""Tests for midnight-crossing support.
+"""Tests for midnight-crossing support.
 
 Covers time_utils helpers, CP-SAT model integration, and validation.
 """
@@ -703,6 +703,38 @@ class TestValidateTaskDurationPhase1:
             ),
         ]
         ScheduleOptimizer._validate_task_duration(tasks, ctx, 0, 7)
+
+    def test_preferred_window_crossing_midnight_valid(self):
+        """120 min task in preferred window 22:00 (1320) to 02:00 (120) = 240 min window → OK."""
+        ctx = ContextoUsuario(horario_inicio=480, horario_fin=1200)
+        tasks = [
+            Actividad(
+                id="t1", nombre="Test", tipo=TipoActividad.TAREA,
+                dia=0, hora_inicio=0, hora_fin=0,
+                duracion_estimada=120,
+                dificultad=Dificultad.MEDIA,
+                hora_preferida_inicio=1320,
+                hora_preferida_fin=120,
+            ),
+        ]
+        ScheduleOptimizer._validate_task_duration(tasks, ctx, 0, 7)
+
+    def test_preferred_window_crossing_midnight_invalid(self):
+        """300 min task in preferred window 22:00 (1320) to 02:00 (120) = 240 min window → Error."""
+        ctx = ContextoUsuario(horario_inicio=480, horario_fin=1200)
+        tasks = [
+            Actividad(
+                id="t1", nombre="Test", tipo=TipoActividad.TAREA,
+                dia=0, hora_inicio=0, hora_fin=0,
+                duracion_estimada=300,
+                dificultad=Dificultad.MEDIA,
+                hora_preferida_inicio=1320,
+                hora_preferida_fin=120,
+            ),
+        ]
+        with pytest.raises(ValueError, match="ventana preferida"):
+            ScheduleOptimizer._validate_task_duration(tasks, ctx, 0, 7)
+
 
 
 class TestValidateConsistencyPhase1:

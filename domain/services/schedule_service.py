@@ -851,7 +851,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
                 )
             # Validar contra la ventana preferida de la tarea
             if act.hora_preferida_inicio is not None and act.hora_preferida_fin is not None:
-                window = act.hora_preferida_fin - act.hora_preferida_inicio
+                window = abs_duration(act.hora_preferida_inicio, act.hora_preferida_fin)
                 if act.duracion_estimada > window:
                     raise ValueError(
                         f"La actividad '{act.nombre}' dura {act.duracion_estimada} min, "
