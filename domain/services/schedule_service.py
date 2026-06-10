@@ -907,7 +907,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
                 fixed_blocks.append(
                     BloqueTiempo(
                         id_actividad=f"{fid}_viaje_to",
-                        nombre=f"Viaje a {finfo['nombre']}",
+                        nombre=f"Traslado hacia {finfo['nombre']}",
                         tipo=TipoActividad.VIAJE,
                         dia=finfo["dia"],
                         hora_inicio=max(0, s_val - tt),
@@ -931,7 +931,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
                 fixed_blocks.append(
                     BloqueTiempo(
                         id_actividad=f"{fid}_viaje_from",
-                        nombre=f"Vuelta de {finfo['nombre']}",
+                        nombre=f"Traslado de vuelta de {finfo['nombre']}",
                         tipo=TipoActividad.VIAJE,
                         dia=finfo["dia"],
                         hora_inicio=e_val,
@@ -1010,7 +1010,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
                         flex_blocks.append(
                             BloqueTiempo(
                                 id_actividad=f"{tid}_viaje_to",
-                                nombre=f"Viaje a {info['nombre']}",
+                                nombre=f"Traslado hacia {info['nombre']}",
                                 tipo=TipoActividad.VIAJE,
                                 dia=dia,
                                 hora_inicio=s_val % 1440,
@@ -1077,7 +1077,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
                         result.append(
                             BloqueTiempo(
                                 id_actividad=f"viaje_{prev.id_actividad}_{b.id_actividad}",
-                                nombre=f"Viaje a {b.nombre}",
+                                nombre=f"Traslado hacia {b.nombre}",
                                 tipo=TipoActividad.VIAJE,
                                 dia=b.dia,
                                 hora_inicio=prev.hora_fin,
