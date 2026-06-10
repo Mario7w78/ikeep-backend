@@ -99,7 +99,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
             "order_vars": {},
             "diagnosis": {
                 "num_flex": len(solicitud.actividades_optimizables),
-                "total_flex_min": sum(a.duracion_estimada for a in solicitud.actividades_optimizables),
+                "total_flex_min": sum((a.travel_to or 0) + a.duracion_estimada + (a.travel_from or 0) for a in solicitud.actividades_optimizables),
                 "num_fixed": len(solicitud.actividades_fijas),
                 "num_sleep": len(ctx.dream_blocks),
                 "patron": patron.value,
@@ -258,6 +258,8 @@ class ScheduleOptimizer(AbstractSchedulerService):
             "dia": act.dia,
             "nombre": act.nombre,
             "tipo": act.tipo,
+            "travel_to": act.travel_to or 0,
+            "travel_from": act.travel_from or 0,
         }
 
     @staticmethod
@@ -330,6 +332,9 @@ class ScheduleOptimizer(AbstractSchedulerService):
             )
 
         dur = act.duracion_estimada
+        tt = act.travel_to or 0
+        tf = act.travel_from or 0
+        total_span = tt + dur + tf
         all_p: list = []
 
         info = {
@@ -339,6 +344,8 @@ class ScheduleOptimizer(AbstractSchedulerService):
             "dificultad": act.dificultad,
             "prioridad": act.prioridad,
             "dur": dur,
+            "travel_to": tt,
+            "travel_from": tf,
             "vars": {},
             "all_p": all_p,
         }
@@ -366,17 +373,17 @@ class ScheduleOptimizer(AbstractSchedulerService):
                     day_end = min(day_end, pref_end)
 
                 p = model.NewBoolVar(f"p_{act.id}_d{dia}")
-                s = model.NewIntVar(day_start, day_end - dur, f"s_{act.id}_d{dia}")
-                e = model.NewIntVar(day_start + dur, day_end, f"e_{act.id}_d{dia}")
+                s = model.NewIntVar(day_start, day_end - total_span, f"s_{act.id}_d{dia}")
+                e = model.NewIntVar(day_start + total_span, day_end, f"e_{act.id}_d{dia}")
                 iv = model.NewOptionalIntervalVar(
-                    dia * 1440 + s, dur, dia * 1440 + e, p, f"iv_{act.id}_d{dia}"
+                    dia * 1440 + s, total_span, dia * 1440 + e, p, f"iv_{act.id}_d{dia}"
                 )
                 state["intervals_abs"].append(iv)
                 info["vars"][dia] = {"p": p, "s": s, "e": e}
                 all_p.append(p)
 
             else:
-                # ── Non-crossing window: current behavior unchanged ──
+                # ── Non-crossing window: total_span replaces dur ──
                 day_start = inicio
                 day_end = fin
                 if act.hora_preferida_inicio is not None:
@@ -385,9 +392,9 @@ class ScheduleOptimizer(AbstractSchedulerService):
                     day_end = min(day_end, act.hora_preferida_fin)
 
                 p = model.NewBoolVar(f"p_{act.id}_d{dia}")
-                s = model.NewIntVar(day_start, day_end - dur, f"s_{act.id}_d{dia}")
-                e = model.NewIntVar(day_start + dur, day_end, f"e_{act.id}_d{dia}")
-                iv = model.NewOptionalIntervalVar(dia * 1440 + s, dur, dia * 1440 + e, p, f"iv_{act.id}_d{dia}")
+                s = model.NewIntVar(day_start, day_end - total_span, f"s_{act.id}_d{dia}")
+                e = model.NewIntVar(day_start + total_span, day_end, f"e_{act.id}_d{dia}")
+                iv = model.NewOptionalIntervalVar(dia * 1440 + s, total_span, dia * 1440 + e, p, f"iv_{act.id}_d{dia}")
                 state["intervals_abs"].append(iv)
                 info["vars"][dia] = {"p": p, "s": s, "e": e}
                 all_p.append(p)
@@ -753,17 +760,20 @@ class ScheduleOptimizer(AbstractSchedulerService):
     def _validate_task_duration(actividades_optimizables, ctx, dia_inicio: int = 0, dias_totales: int = 7):
         max_daily = max(abs_duration(ctx.horario_inicio[d], ctx.horario_fin[d]) for d in range(dia_inicio, dia_inicio + dias_totales))
         for act in actividades_optimizables:
-            if act.duracion_estimada > max_daily:
+            total_span = (act.travel_to or 0) + act.duracion_estimada + (act.travel_from or 0)
+            if total_span > max_daily:
                 raise ValueError(
-                    f"La actividad '{act.nombre}' dura {act.duracion_estimada} min, "
+                    f"La actividad '{act.nombre}' ocupa {total_span} min (viaje ida: {act.travel_to or 0} + "
+                    f"duración: {act.duracion_estimada} + viaje vuelta: {act.travel_from or 0}), "
                     f"pero el horario disponible es de solo {max_daily} min/día"
                 )
             # Validar contra la ventana preferida de la tarea
             if act.hora_preferida_inicio is not None and act.hora_preferida_fin is not None:
                 window = abs_duration(act.hora_preferida_inicio, act.hora_preferida_fin)
-                if act.duracion_estimada > window:
+                if total_span > window:
                     raise ValueError(
-                        f"La actividad '{act.nombre}' dura {act.duracion_estimada} min, "
+                        f"La actividad '{act.nombre}' ocupa {total_span} min (viaje ida: {act.travel_to or 0} + "
+                        f"duración: {act.duracion_estimada} + viaje vuelta: {act.travel_from or 0}), "
                         f"pero su ventana preferida ({act.hora_preferida_inicio}–{act.hora_preferida_fin}) "
                         f"tiene solo {window} min de espacio"
                     )
@@ -842,7 +852,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
                     f"los filtros de programación."
                 )
 
-        total_flex = sum(a.duracion_estimada for a in actividades_optimizables)
+        total_flex = sum((a.travel_to or 0) + a.duracion_estimada + (a.travel_from or 0) for a in actividades_optimizables)
         days_available = dias_totales
 
         # Count occupied time per day (sleep + fixed)
@@ -886,18 +896,48 @@ class ScheduleOptimizer(AbstractSchedulerService):
         estado = _map.get(raw_status, EstadoSolucion.DESCONOCIDO)
 
         # ── Construir bloques de actividades fijas (disponibles incluso si falla) ──
-        fixed_blocks: list[BloqueTiempo] = [
-            BloqueTiempo(
-                id_actividad=fid,
-                nombre=finfo["nombre"],
-                tipo=finfo["tipo"],
-                dia=finfo["dia"],
-                hora_inicio=solver.Value(finfo["s"]),
-                hora_fin=solver.Value(finfo["e"]),
-                ubicacion_id=finfo["loc"],
+        fixed_blocks: list[BloqueTiempo] = []
+        for fid, finfo in state["fixed"].items():
+            s_val = solver.Value(finfo["s"])
+            e_val = solver.Value(finfo["e"])
+            tt = finfo.get("travel_to", 0)
+            tf = finfo.get("travel_from", 0)
+
+            if tt > 0:
+                fixed_blocks.append(
+                    BloqueTiempo(
+                        id_actividad=f"{fid}_viaje_to",
+                        nombre=f"Viaje a {finfo['nombre']}",
+                        tipo=TipoActividad.VIAJE,
+                        dia=finfo["dia"],
+                        hora_inicio=max(0, s_val - tt),
+                        hora_fin=s_val,
+                    )
+                )
+
+            fixed_blocks.append(
+                BloqueTiempo(
+                    id_actividad=fid,
+                    nombre=finfo["nombre"],
+                    tipo=finfo["tipo"],
+                    dia=finfo["dia"],
+                    hora_inicio=s_val,
+                    hora_fin=e_val,
+                    ubicacion_id=finfo["loc"],
+                )
             )
-            for fid, finfo in state["fixed"].items()
-        ]
+
+            if tf > 0:
+                fixed_blocks.append(
+                    BloqueTiempo(
+                        id_actividad=f"{fid}_viaje_from",
+                        nombre=f"Vuelta de {finfo['nombre']}",
+                        tipo=TipoActividad.VIAJE,
+                        dia=finfo["dia"],
+                        hora_inicio=e_val,
+                        hora_fin=e_val + tf,
+                    )
+                )
 
         if estado == EstadoSolucion.INFACTIBLE:
             diag = state.get("diagnosis", {})
@@ -961,17 +1001,47 @@ class ScheduleOptimizer(AbstractSchedulerService):
             scheduled = False
             for dia, v in info["vars"].items():
                 if solver.Value(v["p"]) == 1:
+                    s_val = solver.Value(v["s"])
+                    tt = info["travel_to"]
+                    tf = info["travel_from"]
+                    dur = info["dur"]
+
+                    if tt > 0:
+                        flex_blocks.append(
+                            BloqueTiempo(
+                                id_actividad=f"{tid}_viaje_to",
+                                nombre=f"Viaje a {info['nombre']}",
+                                tipo=TipoActividad.VIAJE,
+                                dia=dia,
+                                hora_inicio=s_val % 1440,
+                                hora_fin=(s_val + tt) % 1440,
+                            )
+                        )
+
                     flex_blocks.append(
                         BloqueTiempo(
                             id_actividad=tid,
                             nombre=info["nombre"],
                             tipo=info["tipo"],
                             dia=dia,
-                            hora_inicio=solver.Value(v["s"]) % 1440,
-                            hora_fin=solver.Value(v["e"]) % 1440,
+                            hora_inicio=(s_val + tt) % 1440,
+                            hora_fin=(s_val + tt + dur) % 1440,
                             ubicacion_id=info["loc"],
                         )
                     )
+
+                    if tf > 0:
+                        flex_blocks.append(
+                            BloqueTiempo(
+                                id_actividad=f"{tid}_viaje_from",
+                                nombre=f"Vuelta de {info['nombre']}",
+                                tipo=TipoActividad.VIAJE,
+                                dia=dia,
+                                hora_inicio=(s_val + tt + dur) % 1440,
+                                hora_fin=(s_val + tt + dur + tf) % 1440,
+                            )
+                        )
+
                     scheduled = True
             if not scheduled:
                 omitted.append(info.get("nombre", tid))
@@ -1008,7 +1078,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
                             BloqueTiempo(
                                 id_actividad=f"viaje_{prev.id_actividad}_{b.id_actividad}",
                                 nombre=f"Viaje a {b.nombre}",
-                                tipo=TipoActividad.TRABAJO,
+                                tipo=TipoActividad.VIAJE,
                                 dia=b.dia,
                                 hora_inicio=prev.hora_fin,
                                 hora_fin=prev.hora_fin + travel,

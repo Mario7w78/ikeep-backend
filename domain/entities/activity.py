@@ -22,3 +22,5 @@ class Actividad:
     dificultad: Dificultad = Dificultad.MEDIA
     hora_preferida_inicio: int | None = None
     hora_preferida_fin: int | None = None
+    travel_to: int | None = None
+    travel_from: int | None = None

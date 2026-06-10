@@ -12,6 +12,7 @@ class TipoActividad(str, Enum):
     CLASE = "clase"
     TRABAJO = "trabajo"
     TAREA = "tarea"
+    VIAJE = "viaje"
 
 
 class Dificultad(str, Enum):

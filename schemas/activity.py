@@ -1,12 +1,13 @@
 from enum import Enum
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 class TipoActividad(str, Enum):
     CLASE = "clase"
     TRABAJO = "trabajo"
     TAREA = "tarea"
+    VIAJE = "viaje"
 
 
 class Dificultad(str, Enum):
@@ -37,6 +38,8 @@ class Actividad(BaseModel):
     duracion_estimada: int
     fecha_limite: str | None = None
     dificultad: Dificultad = Dificultad.MEDIA
+    travel_to: int | None = Field(default=None, ge=0)
+    travel_from: int | None = Field(default=None, ge=0)
 
     @model_validator(mode='after')
     def _validate_day_fields(self) -> 'Actividad':

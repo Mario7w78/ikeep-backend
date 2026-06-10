@@ -37,6 +37,32 @@ def actividad_to_domain(dto: ActividadDTO) -> ActividadDomain:
         dificultad=dto.dificultad,
         hora_preferida_inicio=dto.hora_preferida_inicio,
         hora_preferida_fin=dto.hora_preferida_fin,
+        travel_to=dto.travel_to,
+        travel_from=dto.travel_from,
+    )
+
+
+def domain_to_actividad_request(domain: ActividadDomain) -> ActividadDTO:
+    return ActividadDTO(
+        id=domain.id,
+        nombre=domain.nombre,
+        tipo=domain.tipo,
+        dia=domain.dia,
+        dia_desde=domain.dia_desde,
+        dia_hasta=domain.dia_hasta,
+        dias_permitidos=domain.dias_permitidos,
+        es_ancla=domain.es_ancla,
+        hora_inicio=domain.hora_inicio,
+        hora_fin=domain.hora_fin,
+        ubicacion_id=domain.ubicacion_id,
+        prioridad=domain.prioridad,
+        duracion_estimada=domain.duracion_estimada,
+        fecha_limite=domain.fecha_limite,
+        dificultad=domain.dificultad,
+        hora_preferida_inicio=domain.hora_preferida_inicio,
+        hora_preferida_fin=domain.hora_preferida_fin,
+        travel_to=domain.travel_to,
+        travel_from=domain.travel_from,
     )
 
 
