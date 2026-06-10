@@ -1034,7 +1034,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
                         flex_blocks.append(
                             BloqueTiempo(
                                 id_actividad=f"{tid}_viaje_from",
-                                nombre=f"Vuelta de {info['nombre']}",
+                                nombre=f"Traslado de vuelta de {info['nombre']}",
                                 tipo=TipoActividad.VIAJE,
                                 dia=dia,
                                 hora_inicio=(s_val + tt + dur) % 1440,
