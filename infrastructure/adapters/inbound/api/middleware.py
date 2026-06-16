@@ -37,11 +37,25 @@ class ValidationException(DomainException):
     pass
 
 
+class LLMServiceException(DomainException):
+    """Raised when the LLM service returns an error or malformed response."""
+
+    pass
+
+
+class LLMTimeoutException(DomainException):
+    """Raised when the LLM service request times out."""
+
+    pass
+
+
 # ─── Status code mapping ─────────────────────────────────────────
 
 EXCEPTION_STATUS_MAP: dict[type, int] = {
     ValidationException: 422,
     SolverException: 409,
+    LLMServiceException: 503,
+    LLMTimeoutException: 503,
     DomainException: 422,
     ValueError: 422,
     TypeError: 422,

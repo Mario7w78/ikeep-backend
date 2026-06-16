@@ -11,6 +11,8 @@ from fastapi.testclient import TestClient
 from infrastructure.adapters.inbound.api.middleware import (
     ErrorHandlerMiddleware,
     DomainException,
+    LLMServiceException,
+    LLMTimeoutException,
     SolverException,
     ValidationException,
 )
@@ -45,6 +47,14 @@ def app():
     @app.get("/type-error")
     def type_error():
         raise TypeError("Unexpected type")
+
+    @app.get("/llm-service-error")
+    def llm_service_error():
+        raise LLMServiceException("Gemini API error")
+
+    @app.get("/llm-timeout-error")
+    def llm_timeout_error():
+        raise LLMTimeoutException("Gemini request timed out")
 
     @app.get("/runtime-error")
     def runtime_error():
@@ -104,6 +114,20 @@ class TestErrorHandlerMiddleware:
         data = response.json()
         assert data["error"] == "InternalServerError"
         assert "unexpected" in data["message"].lower()
+
+    def test_llm_service_exception_returns_503(self, client):
+        response = client.get("/llm-service-error")
+        assert response.status_code == 503
+        data = response.json()
+        assert data["error"] == "LLMServiceException"
+        assert "Gemini API error" in data["message"]
+
+    def test_llm_timeout_exception_returns_503(self, client):
+        response = client.get("/llm-timeout-error")
+        assert response.status_code == 503
+        data = response.json()
+        assert data["error"] == "LLMTimeoutException"
+        assert "timed out" in data["message"].lower()
 
     def test_error_response_has_consistent_shape(self, client):
         """All error responses should have error, message, and optionally detail."""

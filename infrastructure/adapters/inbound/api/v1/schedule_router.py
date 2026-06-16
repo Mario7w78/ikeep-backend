@@ -4,8 +4,10 @@ from dependency_injector.wiring import Provide, inject
 
 from domain.entities.enums import EstadoSolucion
 from domain.ports.inbound.scheduler_port import AbstractSchedulerService
+from domain.services.llm_parser_service import LLMParserService
 from infrastructure.config.container import ApplicationContainer
 from infrastructure.adapters.inbound.api.mappers import solicitud_to_domain
+from schemas.parse_nl import ParseNLRequest, ParseNLResponse
 from schemas.schedule_request import SolicitudHorario
 from schemas.schedule_response import BloqueTiempo, RespuestaHorario
 
@@ -38,3 +40,13 @@ def generar_horario(
             for b in resultado.bloques
         ],
     )
+
+
+@router.post("/parse-nl", response_model=ParseNLResponse)
+@inject
+def parse_actividad_nl(
+    request: ParseNLRequest,
+    parser: LLMParserService = Depends(Provide[ApplicationContainer.llm_parser_service]),
+):
+    """Parse a natural language activity description into structured data."""
+    return parser.parse(request.text)
