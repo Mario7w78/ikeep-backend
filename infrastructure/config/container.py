@@ -5,6 +5,9 @@ from domain.services.llm_parser_service import LLMParserService
 from domain.services.schedule_service import PenaltyWeights, ScheduleOptimizer
 from domain.services.reschedule_service import RescheduleService
 from domain.services.suggest_service import SuggestService
+from infrastructure.adapters.outbound.llm.groq_llm_adapter import (
+    GroqLLMAdapter,
+)
 from infrastructure.adapters.outbound.llm.gemini_llm_adapter import (
     GeminiLLMAdapter,
 )
@@ -29,8 +32,9 @@ class ApplicationContainer(containers.DeclarativeContainer):
     settings = providers.Singleton(get_settings)
 
     # ── LLM ──
+    # Active provider — switch between GeminiLLMAdapter and GroqLLMAdapter here
     llm_adapter = providers.Singleton(
-        GeminiLLMAdapter,
+        GroqLLMAdapter,
         settings=settings,
     )
 

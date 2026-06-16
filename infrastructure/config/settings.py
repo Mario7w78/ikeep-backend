@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./ikeep.db"
     ROUTES_API_KEY: str = ""
     GEMINI_API_KEY: str = ""
+    GROQ_API_KEY: str = ""
     SCHEDULER_TIMEOUT: int = 5
 
     class Config:
