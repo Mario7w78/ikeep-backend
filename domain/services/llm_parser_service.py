@@ -11,7 +11,12 @@ from schemas.parse_nl import ParseNLResponse
 
 logger = logging.getLogger(__name__)
 
-# Few-shot examples to guide the LLM's structured output
+# Few-shot examples to guide the LLM's structured output.
+#
+# Classification rules for is_fixed / is_anchor:
+#   - is_fixed=True, is_anchor=False → day AND time known (scheduler blocks the slot)
+#   - is_fixed=False, is_anchor=True  → day known, time NOT known (scheduler pins the day, picks time)
+#   - is_fixed=False, is_anchor=False → neither day nor time known (scheduler picks both)
 _FEW_SHOT_EXAMPLES = [
     {
         "text": "Entreno de futbol los lunes y miercoles de 18 a 19 en el polideportivo",
@@ -36,13 +41,30 @@ _FEW_SHOT_EXAMPLES = [
         "output": {
             "name": "Clase de piano",
             "activity_type": "clase",
-            "is_fixed": True,
-            "is_anchor": False,
+            "is_fixed": False,
+            "is_anchor": True,
             "difficulty": "media",
             "priority": "media",
-            "schedule": [],
+            "schedule": [
+                {"day": "Jueves", "start_time": 0, "end_time": 0},
+            ],
             "location": None,
             "confidence": 0.7,
+            "missing_fields": ["start_time", "end_time", "location"],
+        },
+    },
+    {
+        "text": "Hacer ejercicios de calculo para el parcial",
+        "output": {
+            "name": "Ejercicios de calculo",
+            "activity_type": "tarea",
+            "is_fixed": False,
+            "is_anchor": False,
+            "difficulty": "alta",
+            "priority": "alta",
+            "schedule": [],
+            "location": None,
+            "confidence": 0.6,
             "missing_fields": ["schedule", "location"],
         },
     },
@@ -60,12 +82,16 @@ def _build_few_shot_prompt(text: str) -> str:
     prompt = (
         "Eres un asistente que extrae información estructurada sobre actividades "
         "a partir de texto en lenguaje natural escrito por estudiantes universitarios.\n\n"
-        "Devolvé exclusivamente un objeto JSON que cumpla con el esquema indicado.\n"
+        "Clasifica la actividad según esta regla:\n"
+        '- "is_fixed": true, "is_anchor": false → el usuario dijo día Y horario específico\n'
+        '- "is_fixed": false, "is_anchor": true → el usuario dijo el día PERO NO la hora\n'
+        '- "is_fixed": false, "is_anchor": false → el usuario NO dijo ni día ni horario\n\n'
+        "Devuelve exclusivamente un objeto JSON que cumpla con el esquema indicado.\n"
         "No incluyas texto adicional, explicaciones ni formato markdown.\n\n"
         "Ejemplos:\n\n"
         f"{examples_text}\n\n"
         "---\n\n"
-        f"Ahora analizá el siguiente texto y devolvé el JSON correspondiente:\n\n"
+        f"Ahora analiza el siguiente texto y devuelve el JSON correspondiente:\n\n"
         f"Texto de usuario: {text}"
     )
     return prompt
@@ -74,9 +100,9 @@ def _build_few_shot_prompt(text: str) -> str:
 def _has_minimal_data(response: ParseNLResponse) -> bool:
     """Check if the response contains enough data to be useful.
 
-    A response with no name and no schedule is considered a failure.
+    A response with no name at all is considered a failure.
     """
-    return bool(response.name) or len(response.schedule) > 0
+    return bool(response.name)
 
 
 class LLMParserService:
