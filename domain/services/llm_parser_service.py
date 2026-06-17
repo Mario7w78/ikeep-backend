@@ -264,7 +264,7 @@ Historial de la conversación: (vacío)
 Usuario: hacer ejercicio
 Respuesta: {
   "response_type": "question",
-  "ai_message": "¿Qué tipo de actividad querés agregar? ¿Es una clase, un trabajo o una tarea?",
+  "ai_message": "¿Qué tipo de actividad quieres agregar? ¿Es una clase, un trabajo o una tarea?",
   "missing_fields": ["activity_type"]
 }
 
@@ -329,22 +329,22 @@ Ejemplo 5 (vago → pregunta con horario):
 Usuario: voy al gimnasio
 Respuesta: {
   "response_type": "question",
-  "ai_message": "¿Qué días pensás ir al gimnasio y cuánto dura cada sesión?",
+  "ai_message": "¿Qué días piensas ir al gimnasio y cuánto dura cada sesión?",
   "missing_fields": ["schedule", "duracion_minutos"]
 }"""
 
-        prompt = f"""Sos un asistente que ayuda a crear actividades académicas para un planificador horario.
-Decidí si la información del usuario es SUFICIENTE para producir una actividad estructurada, o si necesitás preguntar algo más.
-Si falta información CRÍTICA (nombre, días, duración), respondé con response_type 'question' y una pregunta natural.
-Si hay suficiente información, respondé con response_type 'result' y el JSON completo.
-Hacé preguntas cortas, naturales, como si hablaras con un amigo, en español neutro (sin voseo argentino).
-Una pregunta por vez. No abrumés al usuario.
-Máximo 4 intercambios (ida+vuelta). Si llegás a 4, producí un result con lo que tengas.
+        prompt = f"""Eres un asistente que ayuda a crear actividades académicas para un planificador horario.
+Decide si la información del usuario es SUFICIENTE para producir una actividad estructurada, o si necesitas preguntar algo más.
+Si falta información CRÍTICA (nombre, días, duración), responde con response_type 'question' y una pregunta natural.
+Si hay suficiente información, responde con response_type 'result' y el JSON completo.
+Haz preguntas cortas, naturales, como si hablaras con un amigo, en español neutro (sin voseo argentino).
+Una pregunta por vez. No abrumes al usuario.
+Máximo 4 intercambios (ida+vuelta). Si llegas a 4, produce un result con lo que tengas.
 
 Ejemplos de comportamiento:
 {few_shot_examples}
 
-IMPORTANTE: Respondé SOLO con JSON válido. Sin markdown, sin texto adicional.
+IMPORTANTE: Responde SOLO con JSON válido. Sin markdown, sin texto adicional.
 
 Si response_type es "question":
 {{
@@ -362,7 +362,7 @@ Si response_type es "result":
   "is_anchor": true | false,
   "difficulty": "baja" | "media" | "alta" | null,
   "priority": "baja" | "media" | "alta" | null,
-  "schedule": [{{"day": "...", "start_time": minutos | 0, "end_time": minutos | 0}}],
+  "schedule": [{{"day": "lunes" | "martes" | "miércoles" | "jueves" | "viernes" | "sábado" | "domingo", "start_time": minutos | 0, "end_time": minutos | 0}}],
   "duracion_minutos": int | null,
   "hora_preferida_inicio": int | null,
   "hora_preferida_fin": int | null,
@@ -441,7 +441,7 @@ Usuario: {text}"""
         if llm_response is None or llm_response.response_type not in ("question", "result"):
             return QuestionResponse(
                 ai_message="No entendí bien, ¿podrías ser más específico?"
-                " Decime qué actividad querés agregar, qué días y cuánto dura.",
+                " Dime qué actividad quieres agregar, qué días y cuánto dura.",
                 missing_fields=["name", "schedule"],
             )
 
@@ -451,7 +451,7 @@ Usuario: {text}"""
 
         # 9. Map response
         if llm_response.response_type == "question":
-            ai_msg = llm_response.ai_message or "Contame un poco más para poder ayudarte."
+            ai_msg = llm_response.ai_message or "Cuéntame un poco más para poder ayudarte."
             return QuestionResponse(
                 ai_message=ai_msg,
                 missing_fields=llm_response.missing_fields or [],
