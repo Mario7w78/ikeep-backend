@@ -331,7 +331,32 @@ Respuesta: {
   "response_type": "question",
   "ai_message": "¿Qué días piensas ir al gimnasio y cuánto dura cada sesión?",
   "missing_fields": ["schedule", "duracion_minutos"]
+}
+
+Ejemplo 6 (corrección de horario tras superposición → resultado):
+Historial de la conversación:
+Usuario: Estudiar inglés los sábados de 7 a 10 am
+Asistente: El horario del día Sabado (07:00 - 10:00) se superpone con la actividad ya establecida "Trabajar" (08:00 - 12:00).
+Usuario: cambialo a las 11:00 am
+Respuesta: {
+  "response_type": "result",
+  "name": "Estudiar inglés",
+  "activity_type": "tarea",
+  "is_fixed": true,
+  "is_anchor": false,
+  "difficulty": null,
+  "priority": null,
+  "schedule": [
+    {"day": "sábado", "start_time": 660, "end_time": 840}
+  ],
+  "duracion_minutos": 180,
+  "hora_preferida_inicio": null,
+  "hora_preferida_fin": null,
+  "location": null,
+  "confidence": 0.95,
+  "missing_fields": []
 }"""
+
 
         prompt = f"""Eres un asistente que ayuda a crear actividades académicas para un planificador horario.
 Decide si la información del usuario es SUFICIENTE para producir una actividad estructurada, o si necesitas preguntar algo más.
@@ -344,6 +369,8 @@ Máximo 4 intercambios (ida+vuelta). Si llegas a 4, produce un result con lo que
 Reglas especiales para el tiempo y la duración:
 1. Si el usuario especifica un rango de hora específico (ej. "de 7 am a 10 am" o "de 18 a 20"), la duración se infiere automáticamente a partir de la diferencia (ej. 3 horas o 2 horas). NO debes considerarla como faltante ni preguntar por ella; la actividad es fija (`is_fixed: true`) y se guardan las horas de inicio y fin exactas en el `schedule`.
 2. Si el usuario especifica una duración menor dentro de un rango de tiempo (ej. "10 minutos entre 7 am a 10 am"), la actividad es optimizable / flexible (`is_fixed: false`), la duración es la indicada (10 minutos), y el rango de tiempo se guarda en `hora_preferida_inicio` (420) y `hora_preferida_fin` (600). En este caso, el `schedule` debe tener `start_time: 0` and `end_time: 0` para los días indicados.
+3. Si el usuario realiza una corrección (ej. cambia la hora o el día), debes actualizar los campos correspondientes en el JSON resultante. Nunca mantengas los valores antiguos si el usuario explícitamente pidió cambiarlos en su último mensaje.
+4. Si el usuario corrige la hora de inicio pero no especifica la duración (ej. "cambialo a las 11 am"), y en el historial se puede deducir la duración previa (ej. de 7 a 10 am = 3 horas), mantén esa duración previa y calcula la nueva hora de fin basándote en ella (de 11 am a 2 pm). No vuelvas a preguntar por la duración si ya estaba establecida.
 
 Ejemplos de comportamiento:
 {few_shot_examples}
