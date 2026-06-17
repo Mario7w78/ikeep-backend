@@ -75,6 +75,32 @@ _FEW_SHOT_EXAMPLES = [
         },
     },
     {
+        "text": "Desayunar todos los dias en 15 minutos desde las 4am hasta las 5:40am",
+        "output": {
+            "name": "Desayunar",
+            "activity_type": "tarea",
+            "is_fixed": False,
+            "is_anchor": True,
+            "difficulty": "baja",
+            "priority": "baja",
+            "schedule": [
+                {"day": "Lunes", "start_time": 0, "end_time": 0},
+                {"day": "Martes", "start_time": 0, "end_time": 0},
+                {"day": "Miercoles", "start_time": 0, "end_time": 0},
+                {"day": "Jueves", "start_time": 0, "end_time": 0},
+                {"day": "Viernes", "start_time": 0, "end_time": 0},
+                {"day": "Sabado", "start_time": 0, "end_time": 0},
+                {"day": "Domingo", "start_time": 0, "end_time": 0},
+            ],
+            "duracion_minutos": 15,
+            "hora_preferida_inicio": 240,
+            "hora_preferida_fin": 340,
+            "location": None,
+            "confidence": 0.95,
+            "missing_fields": ["start_time", "end_time"],
+        },
+    },
+    {
         "text": "Desayunar todos los dias en 15 minutos",
         "output": {
             "name": "Desayunar",
@@ -121,6 +147,16 @@ def _build_few_shot_prompt(text: str) -> str:
         "  pero NO especifica una hora de inicio ni fin, usá el campo duracion_minutos.\n"
         "  No interpretes 'en X min' como una hora del día. Los start_time / end_time\n"
         "  deben quedar en 0 para indicar que el horario aún no está definido.\n\n"
+        "Regla de rango preferido (hora_preferida_inicio / hora_preferida_fin):\n"
+        '- Usá estos campos SOLO si el usuario dice "desde las X hasta las Y" o\n'
+        '  "entre las X y las Y" Y ADEMÁS especifica una duración separada.\n'
+        "  En ese caso NO es un horario fijo, es un RANGO donde la actividad\n"
+        '  puede ubicarse. Ej: "en 15 min desde las 4am hasta las 5:40am" →\n'
+        "  is_anchor=true, duracion_minutos=15, hora_preferida_inicio=240,\n"
+        "  hora_preferida_fin=340, schedule con start_time=0, end_time=0.\n"
+        '- Si el usuario solo dice "de X a Y" (sin mencionar duración por\n'
+        "  separado), es un horario FIJO. Usá is_fixed=true con start_time y\n"
+        "  end_time en schedule, y NO uses hora_preferida_*.\n\n"
         "Devuelve exclusivamente un objeto JSON que cumpla con el esquema indicado.\n"
         "No incluyas texto adicional, explicaciones ni formato markdown.\n\n"
         "Ejemplos:\n\n"

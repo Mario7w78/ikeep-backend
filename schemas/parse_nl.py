@@ -51,6 +51,20 @@ class ParseNLResponse(BaseModel):
                     "When set, schedule entries should have start_time=0, end_time=0.",
         ge=1,
     )
+    hora_preferida_inicio: int | None = Field(
+        default=None,
+        description="Preferred window start in minutes from midnight. "
+                    "Use when the user says 'desde las X' or 'entre las X y las Y' "
+                    "WITH a separate duration. NOT for fixed time slots.",
+        ge=0,
+    )
+    hora_preferida_fin: int | None = Field(
+        default=None,
+        description="Preferred window end in minutes from midnight. "
+                    "Use together with hora_preferida_inicio when the user specifies "
+                    "a range the activity can be placed in, not a fixed slot.",
+        ge=0,
+    )
     location: str | None = None
     confidence: float = Field(
         default=0.0,
