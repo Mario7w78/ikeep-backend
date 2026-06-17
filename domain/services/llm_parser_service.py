@@ -17,6 +17,12 @@ logger = logging.getLogger(__name__)
 #   - is_fixed=True, is_anchor=False → day AND time known (scheduler blocks the slot)
 #   - is_fixed=False, is_anchor=True  → day known, time NOT known (scheduler pins the day, picks time)
 #   - is_fixed=False, is_anchor=False → neither day nor time known (scheduler picks both)
+#
+# Duration rule:
+#   - When the user specifies a duration (ej: "en 15 min", "10 minutos", "media hora")
+#     but does NOT specify a start or end time, set duracion_minutos and keep
+#     start_time=0, end_time=0 in the schedule entries. Do NOT interpret "en X min"
+#     as a specific time of day.
 _FEW_SHOT_EXAMPLES = [
     {
         "text": "Entreno de futbol los lunes y miercoles de 18 a 19 en el polideportivo",
@@ -68,6 +74,30 @@ _FEW_SHOT_EXAMPLES = [
             "missing_fields": ["schedule", "location"],
         },
     },
+    {
+        "text": "Desayunar todos los dias en 15 minutos",
+        "output": {
+            "name": "Desayunar",
+            "activity_type": "tarea",
+            "is_fixed": False,
+            "is_anchor": True,
+            "difficulty": "baja",
+            "priority": "baja",
+            "schedule": [
+                {"day": "Lunes", "start_time": 0, "end_time": 0},
+                {"day": "Martes", "start_time": 0, "end_time": 0},
+                {"day": "Miercoles", "start_time": 0, "end_time": 0},
+                {"day": "Jueves", "start_time": 0, "end_time": 0},
+                {"day": "Viernes", "start_time": 0, "end_time": 0},
+                {"day": "Sabado", "start_time": 0, "end_time": 0},
+                {"day": "Domingo", "start_time": 0, "end_time": 0},
+            ],
+            "duracion_minutos": 15,
+            "location": None,
+            "confidence": 0.9,
+            "missing_fields": ["start_time", "end_time"],
+        },
+    },
 ]
 
 
@@ -86,6 +116,11 @@ def _build_few_shot_prompt(text: str) -> str:
         '- "is_fixed": true, "is_anchor": false → el usuario dijo día Y horario específico\n'
         '- "is_fixed": false, "is_anchor": true → el usuario dijo el día PERO NO la hora\n'
         '- "is_fixed": false, "is_anchor": false → el usuario NO dijo ni día ni horario\n\n'
+        "Regla de duración:\n"
+        '- Si el usuario menciona una duración (ej: "en 15 min", "10 minutos", "media hora")\n'
+        "  pero NO especifica una hora de inicio ni fin, usá el campo duracion_minutos.\n"
+        "  No interpretes 'en X min' como una hora del día. Los start_time / end_time\n"
+        "  deben quedar en 0 para indicar que el horario aún no está definido.\n\n"
         "Devuelve exclusivamente un objeto JSON que cumpla con el esquema indicado.\n"
         "No incluyas texto adicional, explicaciones ni formato markdown.\n\n"
         "Ejemplos:\n\n"

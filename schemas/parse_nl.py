@@ -44,6 +44,13 @@ class ParseNLResponse(BaseModel):
         description="'baja' | 'media' | 'alta'",
     )
     schedule: list[ParsedSchedule] = []
+    duracion_minutos: int | None = Field(
+        default=None,
+        description="Duration in minutes when the user specifies a duration but NO specific start/end time. "
+                    "Ex: 'en 15 min', '10 minutos', 'media hora'. "
+                    "When set, schedule entries should have start_time=0, end_time=0.",
+        ge=1,
+    )
     location: str | None = None
     confidence: float = Field(
         default=0.0,
