@@ -59,7 +59,7 @@ class RescheduleService(AbstractRescheduleService):
 
         solicitud = SolicitudHorario(
             actividades_fijas=actividades_fijas,
-            actividades_optimizables=actividades_optimizables,
+            actividades_optimizables_puras=actividades_optimizables,
             contexto_usuario=ContextoUsuario(
                 nivel_energia=ctx.nivel_energia,
                 horario_inicio=ctx.horario_inicio,

@@ -36,7 +36,7 @@ class TestGenerateSchedule:
     def test_generate_simple_schedule(self, client):
         payload = {
             "actividades_fijas": [],
-            "actividades_optimizables": [
+            "actividades_optimizables_puras": [
                 {
                     "id": "t1",
                     "nombre": "Estudiar",
@@ -74,7 +74,7 @@ class TestGenerateSchedule:
                     "duracion_estimada": 60,
                 }
             ],
-            "actividades_optimizables": [
+            "actividades_optimizables_puras": [
                 {
                     "id": "t1",
                     "nombre": "Tarea",
@@ -123,7 +123,7 @@ class TestGenerateSchedule:
                     "duracion_estimada": 60,
                 },
             ],
-            "actividades_optimizables": [],
+            "actividades_optimizables_puras": [],
             "contexto_usuario": {
                 "nivel_energia": 2,
                 "horario_inicio": 480,
@@ -136,7 +136,7 @@ class TestGenerateSchedule:
     def test_generate_rejects_task_longer_than_day(self, client):
         payload = {
             "actividades_fijas": [],
-            "actividades_optimizables": [
+            "actividades_optimizables_puras": [
                 {
                     "id": "t1",
                     "nombre": "Maratón",

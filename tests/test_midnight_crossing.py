@@ -194,7 +194,7 @@ def test_fixed_activity_crossing_midnight():
     ctx = ContextoUsuario()
     request = SolicitudHorario(
         actividades_fijas=actividades,
-        actividades_optimizables=[],
+        actividades_optimizables_puras=[],
         contexto_usuario=ctx,
     )
     optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -255,7 +255,7 @@ def test_sleep_block_crossing_midnight():
     ]
     request = SolicitudHorario(
         actividades_fijas=[],
-        actividades_optimizables=tareas,
+        actividades_optimizables_puras=tareas,
         contexto_usuario=ctx,
     )
     optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -343,7 +343,7 @@ def test_mixed_crossing_and_same_day():
     ]
     request = SolicitudHorario(
         actividades_fijas=actividades_fijas,
-        actividades_optimizables=tareas,
+        actividades_optimizables_puras=tareas,
         contexto_usuario=ctx,
         ubicaciones=[
             Ubicacion(id="loc_a", nombre="A", latitud=0.0, longitud=0.0),
@@ -518,7 +518,7 @@ def test_sleep_block_exceeds_max_duration():
     )
     request = SolicitudHorario(
         actividades_fijas=[],
-        actividades_optimizables=[],
+        actividades_optimizables_puras=[],
         contexto_usuario=ctx,
     )
     with pytest.raises(ValueError, match="superando el máximo"):
@@ -546,7 +546,7 @@ def test_sleep_block_conflicts_with_fixed():
     ]
     request = SolicitudHorario(
         actividades_fijas=actividades,
-        actividades_optimizables=[],
+        actividades_optimizables_puras=[],
         contexto_usuario=ctx,
     )
     with pytest.raises(ValueError, match="solapa con un bloque de sueño"):
@@ -573,7 +573,7 @@ def test_insufficient_capacity_raises():
     ]
     request = SolicitudHorario(
         actividades_fijas=[],
-        actividades_optimizables=tareas,
+        actividades_optimizables_puras=tareas,
         contexto_usuario=ctx,
     )
     with pytest.raises(ValueError, match="dura.*min.*solo.*min"):
@@ -595,7 +595,7 @@ class TestSchemaCrossingPhase1:
 
         solicitud = PydanticSolicitud(
             actividades_fijas=[],
-            actividades_optimizables=[],
+            actividades_optimizables_puras=[],
             contexto_usuario=PydanticCtx(horario_inicio=480, horario_fin=60),
         )
         _ = solicitud  # should not raise
@@ -607,7 +607,7 @@ class TestSchemaCrossingPhase1:
 
         solicitud = PydanticSolicitud(
             actividades_fijas=[],
-            actividades_optimizables=[],
+            actividades_optimizables_puras=[],
             contexto_usuario=PydanticCtx(horario_inicio=480, horario_fin=1200),
         )
         _ = solicitud  # should not raise
@@ -619,7 +619,7 @@ class TestSchemaCrossingPhase1:
 
         solicitud = PydanticSolicitud(
             actividades_fijas=[],
-            actividades_optimizables=[],
+            actividades_optimizables_puras=[],
             contexto_usuario=PydanticCtx(horario_inicio=0, horario_fin=0),
         )
         _ = solicitud  # should not raise
@@ -632,7 +632,7 @@ class TestSchemaCrossingPhase1:
         with pytest.raises(ValueError, match="duraci.n cero"):
             PydanticSolicitud(
                 actividades_fijas=[],
-                actividades_optimizables=[],
+                actividades_optimizables_puras=[],
                 contexto_usuario=PydanticCtx(horario_inicio=1440, horario_fin=0),
             )
 
@@ -644,7 +644,7 @@ class TestSchemaCrossingPhase1:
         with pytest.raises(ValueError):
             PydanticSolicitud(
                 actividades_fijas=[],
-                actividades_optimizables=[],
+                actividades_optimizables_puras=[],
                 contexto_usuario=PydanticCtx(horario_inicio=-1, horario_fin=1200),
             )
 
@@ -656,7 +656,7 @@ class TestSchemaCrossingPhase1:
         with pytest.raises(ValueError):
             PydanticSolicitud(
                 actividades_fijas=[],
-                actividades_optimizables=[],
+                actividades_optimizables_puras=[],
                 contexto_usuario=PydanticCtx(horario_inicio=480, horario_fin=1441),
             )
 
@@ -792,7 +792,7 @@ def test_flex_task_crossing_midnight():
     ]
     request = SolicitudHorario(
         actividades_fijas=[],
-        actividades_optimizables=tareas,
+        actividades_optimizables_puras=tareas,
         contexto_usuario=ctx,
         dias_totales=1,
     )
@@ -837,7 +837,7 @@ def test_flex_task_crossing_post_midnight():
     ]
     request = SolicitudHorario(
         actividades_fijas=[],
-        actividades_optimizables=tareas,
+        actividades_optimizables_puras=tareas,
         contexto_usuario=ctx,
         dias_totales=1,
     )
@@ -876,7 +876,7 @@ def test_rest_block_crossing():
     ]
     request = SolicitudHorario(
         actividades_fijas=[],
-        actividades_optimizables=tareas,
+        actividades_optimizables_puras=tareas,
         contexto_usuario=ctx,
         dias_totales=1,
     )
@@ -904,7 +904,7 @@ def test_crossing_default_window_identical():
     ]
     request = SolicitudHorario(
         actividades_fijas=[],
-        actividades_optimizables=tareas,
+        actividades_optimizables_puras=tareas,
         contexto_usuario=ctx,
         dias_totales=1,
     )

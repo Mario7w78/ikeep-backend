@@ -76,9 +76,10 @@ class ScheduleOptimizer(AbstractSchedulerService):
         # Infer dream blocks from horario_inicio/fin if none explicitly provided
         self._infer_dream_blocks(ctx, dia_inicio, dias_totales)
 
+        optimizables = solicitud.actividades_ancla + solicitud.actividades_optimizables_puras
         self._validate_fixed_overlaps(solicitud.actividades_fijas)
-        self._validate_task_duration(solicitud.actividades_optimizables, ctx, dia_inicio, dias_totales)
-        self._validate_consistency(solicitud.actividades_fijas, ctx.dream_blocks, solicitud.actividades_optimizables, ctx, dia_inicio, dias_totales, omitido_weight=self.weights.omitido)
+        self._validate_task_duration(optimizables, ctx, dia_inicio, dias_totales)
+        self._validate_consistency(solicitud.actividades_fijas, ctx.dream_blocks, optimizables, ctx, dia_inicio, dias_totales, omitido_weight=self.weights.omitido)
 
         model = cp_model.CpModel()
 
@@ -98,14 +99,14 @@ class ScheduleOptimizer(AbstractSchedulerService):
             "flex": {},
             "order_vars": {},
             "diagnosis": {
-                "num_flex": len(solicitud.actividades_optimizables),
-                "total_flex_min": sum((a.travel_to or 0) + a.duracion_estimada + (a.travel_from or 0) for a in solicitud.actividades_optimizables),
+                "num_flex": len(optimizables),
+                "total_flex_min": sum((a.travel_to or 0) + a.duracion_estimada + (a.travel_from or 0) for a in optimizables),
                 "num_fixed": len(solicitud.actividades_fijas),
                 "num_sleep": len(ctx.dream_blocks),
                 "patron": patron.value,
                 "horario_inicio": ctx.horario_inicio[0],
                 "horario_fin": ctx.horario_fin[0],
-                "has_alta": any(a.dificultad == Dificultad.ALTA for a in solicitud.actividades_optimizables),
+                "has_alta": any(a.dificultad == Dificultad.ALTA for a in optimizables),
             },
         }
 
@@ -119,8 +120,12 @@ class ScheduleOptimizer(AbstractSchedulerService):
         # RB-07 (garantizada): bloque de descanso por día
         self._add_rest_blocks(model, ctx, state)
 
-        # Variables de decisión para tareas flexibles
-        for act in solicitud.actividades_optimizables:
+        # Variables de decisión para tareas ancla (día fijo, hora flexible, OBLIGATORIAS)
+        for act in solicitud.actividades_ancla:
+            self._add_flexible_task(model, act, ctx, state, force_schedule=True)
+
+        # Variables de decisión para tareas optimizables puras (día y hora flexible)
+        for act in solicitud.actividades_optimizables_puras:
             self._add_flexible_task(model, act, ctx, state)
 
         # RD-01: no solapamiento (flat absolute timeline)
@@ -133,7 +138,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
         # Restricciones blandas
         objective_terms: list[int] = []
 
-        if solicitud.actividades_optimizables:
+        if optimizables:
             self._rb_01(model, ctx, state, objective_terms, patron)
             self._rb_02(model, ctx, state, objective_terms)
             self._rb_03(model, ctx, state, objective_terms)
@@ -292,7 +297,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
             model.Add(p == 1)
 
     @staticmethod
-    def _add_flexible_task(model, act, ctx, state):
+    def _add_flexible_task(model, act, ctx, state, force_schedule: bool = False):
         # Day range with backward compat: if dia is set and the new day-range
         # fields are at their defaults, alias dia → dia_hasta (Phase 1 behavior).
         if act.dia is not None and act.dia_desde == 0 and act.dia_hasta == 6:
@@ -399,14 +404,18 @@ class ScheduleOptimizer(AbstractSchedulerService):
                 info["vars"][dia] = {"p": p, "s": s, "e": e}
                 all_p.append(p)
 
-        # RD-05: como máximo un día (F9: permite omitir tareas si es inviable)
-        model.Add(sum(all_p) <= 1)
+        if force_schedule:
+            # Ancla: debe asignarse a su día, no se puede omitir
+            model.Add(sum(all_p) == 1)
+        else:
+            # RD-05: como máximo un día (F9: permite omitir tareas si es inviable)
+            model.Add(sum(all_p) <= 1)
 
-        # F9: variable de omisión — 1 si la tarea no se programa, 0 si se asigna a algún día
-        omit = model.NewBoolVar(f"omit_{act.id}")
-        model.Add(sum(all_p) >= 1).OnlyEnforceIf(omit.Not())
-        model.Add(sum(all_p) == 0).OnlyEnforceIf(omit)
-        info["omit"] = omit
+            # F9: variable de omisión — 1 si la tarea no se programa, 0 si se asigna a algún día
+            omit = model.NewBoolVar(f"omit_{act.id}")
+            model.Add(sum(all_p) >= 1).OnlyEnforceIf(omit.Not())
+            model.Add(sum(all_p) == 0).OnlyEnforceIf(omit)
+            info["omit"] = omit
 
     # ==================== Restricciones duras ====================
 

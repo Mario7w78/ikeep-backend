@@ -9,7 +9,8 @@ from domain.services.time_utils import abs_duration
 
 class SolicitudHorario(BaseModel):
     actividades_fijas: list[Actividad]
-    actividades_optimizables: list[Actividad]
+    actividades_ancla: list[Actividad] = []
+    actividades_optimizables_puras: list[Actividad] = []
     ubicaciones: list[Ubicacion] = []
     tiempos_traslado: list[TiempoTraslado] = []
     contexto_usuario: ContextoUsuario = ContextoUsuario()

@@ -74,7 +74,7 @@ class TestBasicScheduling:
         task = _make_task("t1", duracion=60)
         solicitud = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=[task],
+            actividades_optimizables_puras=[task],
             contexto_usuario=_make_ctx(),
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -93,7 +93,7 @@ class TestBasicScheduling:
         ]
         solicitud = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tasks,
+            actividades_optimizables_puras=tasks,
             contexto_usuario=_make_ctx(),
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -121,7 +121,7 @@ class TestBasicScheduling:
         task = _make_task("t1", duracion=60)
         solicitud = SolicitudHorario(
             actividades_fijas=[fixed],
-            actividades_optimizables=[task],
+            actividades_optimizables_puras=[task],
             contexto_usuario=_make_ctx(),
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -144,7 +144,7 @@ class TestValidation:
         a2 = _make_task("c2", tipo=TipoActividad.CLASE, dia=0, hora_inicio=510, hora_fin=570, duracion=60)
         solicitud = SolicitudHorario(
             actividades_fijas=[a1, a2],
-            actividades_optimizables=[],
+            actividades_optimizables_puras=[],
             contexto_usuario=_make_ctx(),
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -156,11 +156,11 @@ class TestValidation:
         task = _make_task("t1", duracion=800)  # 800 min > 720 available
         solicitud = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=[task],
+            actividades_optimizables_puras=[task],
             contexto_usuario=_make_ctx(horario_inicio=480, horario_fin=1200),
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
-        with pytest.raises(ValueError, match="dura 800 min"):
+        with pytest.raises(ValueError, match="ocupa 800 min"):
             optimizer.generar(solicitud)
 
 
@@ -187,7 +187,7 @@ class TestEnergyPatterns:
         """TRANSCRIPTORIO (< 20% low energy) should solve without extra constraints."""
         solicitud = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=[_make_task("t1", duracion=60)],
+            actividades_optimizables_puras=[_make_task("t1", duracion=60)],
             contexto_usuario=_make_ctx(
                 nivel_energia=3,
                 historial=self._history(0.1),
@@ -208,7 +208,7 @@ class TestEnergyPatterns:
             t.dia = 6  # deadline: can be scheduled on days 0-6
         solicitud = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tasks,
+            actividades_optimizables_puras=tasks,
             contexto_usuario=_make_ctx(
                 nivel_energia=1,
                 historial=self._history(0.4),
@@ -234,7 +234,7 @@ class TestEnergyPatterns:
         ]
         solicitud = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tasks,
+            actividades_optimizables_puras=tasks,
             contexto_usuario=_make_ctx(
                 nivel_energia=1,
                 historial=self._history(0.8),
@@ -255,7 +255,7 @@ class TestSleepBlocks:
         task = _make_task("t1", duracion=60)
         solicitud = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=[task],
+            actividades_optimizables_puras=[task],
             contexto_usuario=_make_ctx(dream_blocks=[sleep]),
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -290,7 +290,7 @@ class TestTravelConstraints:
 
         solicitud = SolicitudHorario(
             actividades_fijas=[fixed],
-            actividades_optimizables=[task],
+            actividades_optimizables_puras=[task],
             ubicaciones=[loc1, loc2],
             tiempos_traslado=[TiempoTraslado(origen_id="loc1", destino_id="loc2", tiempo_estimado_minutos=15)],
             contexto_usuario=_make_ctx(),
@@ -312,7 +312,7 @@ class TestEdgeCases:
         fixed = _make_task("c1", tipo=TipoActividad.CLASE, dia=0, hora_inicio=480, hora_fin=540, duracion=60)
         solicitud = SolicitudHorario(
             actividades_fijas=[fixed],
-            actividades_optimizables=[],
+            actividades_optimizables_puras=[],
             contexto_usuario=_make_ctx(),
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -325,7 +325,7 @@ class TestEdgeCases:
         """Empty request should return OPTIMAL with no blocks."""
         solicitud = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=[],
+            actividades_optimizables_puras=[],
             contexto_usuario=_make_ctx(),
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -338,7 +338,7 @@ class TestEdgeCases:
         weights = PenaltyWeights(rb_01=20, rb_02=15, rb_03=0)
         solicitud = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=[_make_task("t1", duracion=60)],
+            actividades_optimizables_puras=[_make_task("t1", duracion=60)],
             contexto_usuario=_make_ctx(),
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5, weights=weights)
@@ -359,7 +359,7 @@ class TestPreferredHours:
         )
         solicitud = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=[task],
+            actividades_optimizables_puras=[task],
             contexto_usuario=_make_ctx(),
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -381,7 +381,7 @@ class TestPreferredHours:
         )
         solicitud = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=[task],
+            actividades_optimizables_puras=[task],
             contexto_usuario=_make_ctx(horario_inicio=480, horario_fin=1200),
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -403,7 +403,7 @@ class TestPreferredHours:
         )
         solicitud = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=[task],
+            actividades_optimizables_puras=[task],
             contexto_usuario=_make_ctx(horario_inicio=480, horario_fin=780),
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -419,7 +419,7 @@ class TestPreferredHours:
         task = _make_task("t1", duracion=60)
         solicitud = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=[task],
+            actividades_optimizables_puras=[task],
             contexto_usuario=_make_ctx(horario_inicio=480, horario_fin=1200),
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -439,7 +439,7 @@ class TestPreferredHours:
         )
         solicitud = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=[task],
+            actividades_optimizables_puras=[task],
             contexto_usuario=_make_ctx(),
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -460,7 +460,7 @@ class TestPreferredHours:
         )
         solicitud = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=[t1, t2],
+            actividades_optimizables_puras=[t1, t2],
             contexto_usuario=_make_ctx(),
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -481,7 +481,7 @@ class TestPreferredHours:
         )
         solicitud = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=[task],
+            actividades_optimizables_puras=[task],
             contexto_usuario=_make_ctx(),
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -502,7 +502,7 @@ class TestPreferredHours:
         )
         solicitud = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=[task],
+            actividades_optimizables_puras=[task],
             contexto_usuario=_make_ctx(),
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -525,7 +525,7 @@ class TestPreferredHours:
         )
         solicitud = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=[task],
+            actividades_optimizables_puras=[task],
             contexto_usuario=_make_ctx(horario_inicio=480, horario_fin=720),
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -547,7 +547,7 @@ class TestPreferredHours:
         )
         solicitud = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=[task],
+            actividades_optimizables_puras=[task],
             contexto_usuario=_make_ctx(horario_inicio=480, horario_fin=720),
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)

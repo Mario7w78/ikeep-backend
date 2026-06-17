@@ -38,7 +38,7 @@ class TestManualEnergyOverride:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -61,7 +61,7 @@ class TestManualEnergyOverride:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -85,7 +85,7 @@ class TestManualEnergyOverride:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -112,7 +112,7 @@ class TestManualEnergyOverride:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -153,7 +153,7 @@ class TestPriorityPenalty:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         # Default weights have rb_priority=0
@@ -178,7 +178,7 @@ class TestPriorityPenalty:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         from domain.services.schedule_service import PenaltyWeights
@@ -209,7 +209,7 @@ class TestPriorityPenalty:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         from domain.services.schedule_service import PenaltyWeights
@@ -243,7 +243,7 @@ class TestOptionalDay:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -269,7 +269,7 @@ class TestOptionalDay:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -307,7 +307,7 @@ class TestOptionalDay:
         ]
         request = SolicitudHorario(
             actividades_fijas=actividades_fijas,
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -328,7 +328,7 @@ class TestOptionalDay:
         ]
         request = SolicitudHorario(
             actividades_fijas=actividades,
-            actividades_optimizables=[],
+            actividades_optimizables_puras=[],
             contexto_usuario=ctx,
         )
         with pytest.raises(ValueError, match="no tiene un día asignado"):
@@ -353,7 +353,7 @@ class TestOptionalDay:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -380,7 +380,7 @@ class TestOptionalDay:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -413,7 +413,7 @@ class TestDayRange:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -441,7 +441,7 @@ class TestDayRange:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -470,7 +470,7 @@ class TestDayRange:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -503,7 +503,7 @@ class TestDayRange:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=1)
@@ -526,7 +526,7 @@ class TestDayRange:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -562,7 +562,7 @@ class TestPermittedDays:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -589,7 +589,7 @@ class TestPermittedDays:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -618,7 +618,7 @@ class TestPermittedDays:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -645,7 +645,7 @@ class TestPermittedDays:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -675,7 +675,7 @@ class TestPermittedDays:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=1)
@@ -698,7 +698,7 @@ class TestPermittedDays:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=1)
@@ -730,7 +730,7 @@ class TestAnchorTasks:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -759,7 +759,7 @@ class TestAnchorTasks:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=1)
@@ -782,7 +782,7 @@ class TestAnchorTasks:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -809,7 +809,7 @@ class TestAnchorTasks:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -838,7 +838,7 @@ class TestAnchorTasks:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=1)
@@ -861,7 +861,7 @@ class TestAnchorTasks:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         optimizer = ScheduleOptimizer(timeout_seconds=5)
@@ -894,7 +894,7 @@ class TestRollingWeek:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         response = ScheduleOptimizer(timeout_seconds=5).generar(request)
@@ -918,7 +918,7 @@ class TestRollingWeek:
         ]
         request = SolicitudHorario(
             actividades_fijas=fijas,
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
             dia_inicio=3, dias_totales=3,
         )
@@ -931,7 +931,7 @@ class TestRollingWeek:
         with pytest.raises((ValueError, ValidationError)):
             # dias_totales = 0
             request = SolicitudHorario(
-                actividades_fijas=[], actividades_optimizables=[], contexto_usuario=ctx,
+                actividades_fijas=[], actividades_optimizables_puras=[], contexto_usuario=ctx,
                 dia_inicio=0, dias_totales=0,
             )
             ScheduleOptimizer(timeout_seconds=5).generar(request)
@@ -951,7 +951,7 @@ class TestPerDayHours:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         response = ScheduleOptimizer(timeout_seconds=5).generar(request)
@@ -974,7 +974,7 @@ class TestPerDayHours:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         response = ScheduleOptimizer(timeout_seconds=5).generar(request)
@@ -996,7 +996,7 @@ class TestPerDayHours:
         with pytest.raises((ValueError, ValidationError, TypeError)):
             request = SolicitudHorario(
                 actividades_fijas=[],
-                actividades_optimizables=tareas,
+                actividades_optimizables_puras=tareas,
                 contexto_usuario=ctx,
             )
             ScheduleOptimizer(timeout_seconds=5).generar(request)
@@ -1025,7 +1025,7 @@ class TestPartialAssignment:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         response = ScheduleOptimizer(timeout_seconds=5).generar(request)
@@ -1051,7 +1051,7 @@ class TestPartialAssignment:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         response = ScheduleOptimizer(timeout_seconds=15, weights=PenaltyWeights(omitido=100)).generar(request)
@@ -1076,7 +1076,7 @@ class TestPartialAssignment:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         response = ScheduleOptimizer(
@@ -1108,7 +1108,7 @@ class TestPartialAssignment:
         ]
         request = SolicitudHorario(
             actividades_fijas=[],
-            actividades_optimizables=tareas,
+            actividades_optimizables_puras=tareas,
             contexto_usuario=ctx,
         )
         # With omitido=0, solver may freely omit
