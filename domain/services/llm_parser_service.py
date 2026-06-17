@@ -252,8 +252,10 @@ class LLMParserService:
         # Format conversation history
         history_lines = []
         for msg in history:
-            role = "Usuario" if msg.get("role") == "user" else "Asistente"
-            history_lines.append(f"{role}: {msg.get('content', '')}")
+            role_val = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
+            content_val = msg.get("content", "") if isinstance(msg, dict) else getattr(msg, "content", "")
+            role = "Usuario" if role_val == "user" else "Asistente"
+            history_lines.append(f"{role}: {content_val}")
 
         history_text = "\n".join(history_lines) if history_lines else "(vacío)"
 
@@ -391,7 +393,10 @@ Texto del usuario actual:
             history = history[-12:]
 
         # 2. Count assistant messages to enforce max 4 exchanges
-        assistant_count = sum(1 for m in history if m.get("role") == "assistant")
+        assistant_count = sum(
+            1 for m in history
+            if (m.get("role") if isinstance(m, dict) else getattr(m, "role", None)) == "assistant"
+        )
 
         # 3. Build prompt
         prompt = self._build_conversational_prompt(text, history)

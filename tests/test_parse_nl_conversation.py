@@ -344,3 +344,22 @@ class TestParseNLConversation:
         assert result.schedule[0].end_time == 0
         assert result.schedule[1].start_time == 0
         assert result.schedule[1].end_time == 0
+
+    def test_parse_conversational_with_pydantic_history(self):
+        """Verify that parse_conversational handles history with Pydantic ConversationMessage objects."""
+        from domain.services.llm_parser_service import LLMParserService
+        from schemas.parse_nl import ConversationMessage
+
+        mock_llm = MagicMock()
+        mock_llm.generate.return_value = self._mock_question_response()
+
+        service = LLMParserService(mock_llm)
+
+        history = [
+            ConversationMessage(role="user", content="quiero agregar una actividad"),
+            ConversationMessage(role="assistant", content="¿Qué tipo de actividad?"),
+        ]
+
+        result = service.parse_conversational("clase de yoga", history)
+        assert isinstance(result, QuestionResponse)
+
