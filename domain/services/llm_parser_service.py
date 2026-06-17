@@ -5,9 +5,17 @@ activity data conforming to the ParseNLResponse schema.
 """
 
 import logging
+from typing import Literal
+
+from pydantic import BaseModel
 
 from domain.ports.outbound.llm_port import LLMPort
-from schemas.parse_nl import ParseNLResponse
+from schemas.parse_nl import (
+    ParsedSchedule,
+    ParseNLResponse,
+    QuestionResponse,
+    ResultResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -228,3 +236,246 @@ class LLMParserService:
             "Failed to parse activity description after multiple attempts. "
             "Please provide more details."
         )
+
+    # ── Conversational NL parsing ──────────────────────────────────
+
+    def _build_conversational_prompt(self, text: str, history: list[dict]) -> str:
+        """Build a prompt for conversational NL parsing with accumulated context.
+
+        Args:
+            text: The current user message.
+            history: List of prior exchanges as {role, content} dicts.
+
+        Returns:
+            A formatted prompt string for the LLM.
+        """
+        # Format conversation history
+        history_lines = []
+        for msg in history:
+            role = "Usuario" if msg.get("role") == "user" else "Asistente"
+            history_lines.append(f"{role}: {msg.get('content', '')}")
+
+        history_text = "\n".join(history_lines) if history_lines else "(vacío)"
+
+        few_shot_examples = """Ejemplo 1 (vago → pregunta):
+Historial de la conversación: (vacío)
+Usuario: hacer ejercicio
+Respuesta: {
+  "response_type": "question",
+  "ai_message": "¿Qué tipo de actividad querés agregar? ¿Es una clase, un trabajo o una tarea?",
+  "missing_fields": ["activity_type"]
+}
+
+Ejemplo 2 (parcial → pregunta):
+Usuario: clase de yoga los lunes
+Asistente: ¿Cuánto dura cada clase?
+Usuario: 45 minutos
+Respuesta: {
+  "response_type": "question",
+  "ai_message": "¿A qué hora empieza la clase de yoga los lunes?",
+  "missing_fields": ["schedule"]
+}
+
+Ejemplo 3 (completo → resultado):
+Usuario: Estudiar matemáticas los lunes y miércoles de 18 a 20, es una tarea de dificultad alta
+Respuesta: {
+  "response_type": "result",
+  "name": "Estudiar matemáticas",
+  "activity_type": "tarea",
+  "is_fixed": true,
+  "is_anchor": false,
+  "difficulty": "alta",
+  "priority": null,
+  "schedule": [
+    {"day": "lunes", "start_time": 1080, "end_time": 1200},
+    {"day": "miércoles", "start_time": 1080, "end_time": 1200}
+  ],
+  "duracion_minutos": 120,
+  "hora_preferida_inicio": null,
+  "hora_preferida_fin": null,
+  "location": null,
+  "confidence": 0.95,
+  "missing_fields": []
+}
+
+Ejemplo 4 (ancla con ventana preferida → resultado):
+Usuario: Desayunar todos los días en 15 minutos desde las 4am hasta las 5:40am
+Respuesta: {
+  "response_type": "result",
+  "name": "Desayunar",
+  "activity_type": null,
+  "is_fixed": false,
+  "is_anchor": true,
+  "difficulty": null,
+  "priority": null,
+  "schedule": [
+    {"day": "lunes", "start_time": 0, "end_time": 0},
+    {"day": "martes", "start_time": 0, "end_time": 0},
+    {"day": "miércoles", "start_time": 0, "end_time": 0},
+    {"day": "jueves", "start_time": 0, "end_time": 0},
+    {"day": "viernes", "start_time": 0, "end_time": 0}
+  ],
+  "duracion_minutos": 15,
+  "hora_preferida_inicio": 240,
+  "hora_preferida_fin": 340,
+  "location": null,
+  "confidence": 0.9,
+  "missing_fields": []
+}
+
+Ejemplo 5 (vago → pregunta con horario):
+Usuario: voy al gimnasio
+Respuesta: {
+  "response_type": "question",
+  "ai_message": "¿Qué días pensás ir al gimnasio y cuánto dura cada sesión?",
+  "missing_fields": ["schedule", "duracion_minutos"]
+}"""
+
+        prompt = f"""Sos un asistente que ayuda a crear actividades académicas para un planificador horario.
+Decidí si la información del usuario es SUFICIENTE para producir una actividad estructurada, o si necesitás preguntar algo más.
+Si falta información CRÍTICA (nombre, días, duración), respondé con response_type 'question' y una pregunta natural.
+Si hay suficiente información, respondé con response_type 'result' y el JSON completo.
+Hacé preguntas cortas, naturales, como si hablaras con un amigo, en español neutro (sin voseo argentino).
+Una pregunta por vez. No abrumés al usuario.
+Máximo 4 intercambios (ida+vuelta). Si llegás a 4, producí un result con lo que tengas.
+
+{history_text}
+
+{few_shot_examples}
+
+IMPORTANTE: Respondé SOLO con JSON válido. Sin markdown, sin texto adicional.
+
+Si response_type es "question":
+{{
+  "response_type": "question",
+  "ai_message": "[tu pregunta amigable en español neutro]",
+  "missing_fields": ["campo1", "campo2"]
+}}
+
+Si response_type es "result":
+{{
+  "response_type": "result",
+  "name": "...",
+  "activity_type": "clase" | "trabajo" | "tarea" | null,
+  "is_fixed": true | false,
+  "is_anchor": true | false,
+  "difficulty": "baja" | "media" | "alta" | null,
+  "priority": "baja" | "media" | "alta" | null,
+  "schedule": [{{"day": "...", "start_time": minutos | 0, "end_time": minutos | 0}}],
+  "duracion_minutos": int | null,
+  "hora_preferida_inicio": int | null,
+  "hora_preferida_fin": int | null,
+  "location": str | null,
+  "confidence": float,
+  "missing_fields": []
+}}
+
+---
+Texto del usuario actual:
+{text}"""
+
+        return prompt
+
+    def parse_conversational(self, text: str, history: list[dict]) -> QuestionResponse | ResultResponse:
+        """Parse an activity description conversationally, accumulating context.
+
+        Args:
+            text: The current user message.
+            history: List of prior exchanges as {role, content} dicts.
+
+        Returns:
+            A QuestionResponse if more info is needed, or a ResultResponse if complete.
+        """
+        # 1. Truncate history to last 12 entries if needed
+        if len(history) > 12:
+            history = history[-12:]
+
+        # 2. Count assistant messages to enforce max 4 exchanges
+        assistant_count = sum(1 for m in history if m.get("role") == "assistant")
+
+        # 3. Build prompt
+        prompt = self._build_conversational_prompt(text, history)
+
+        # 4. Define the response model for the LLM
+        class ConversationalLLMResponse(BaseModel):
+            response_type: Literal["question", "result"] = "question"
+            ai_message: str | None = None
+            missing_fields: list[str] = []
+            name: str | None = None
+            activity_type: str | None = None
+            is_fixed: bool = True
+            is_anchor: bool = False
+            difficulty: str | None = None
+            priority: str | None = None
+            schedule: list[dict] = []
+            duracion_minutos: int | None = None
+            hora_preferida_inicio: int | None = None
+            hora_preferida_fin: int | None = None
+            location: str | None = None
+            confidence: float = 0.0
+
+        # 5. Call LLM
+        try:
+            llm_response = self._llm_port.generate(prompt, ConversationalLLMResponse)
+        except Exception:
+            llm_response = None
+
+        # 6. Retry once if failed
+        if llm_response is None or llm_response.response_type not in ("question", "result"):
+            try:
+                retry_prompt = (
+                    prompt
+                    + "\n\n IMPORTANTE: Respondé SOLO con JSON válido."
+                    " Tu respuesta anterior no fue válida. Usá response_type 'question' o 'result'."
+                )
+                llm_response = self._llm_port.generate(retry_prompt, ConversationalLLMResponse)
+            except Exception:
+                llm_response = None
+
+        # 7. If still failed, return fallback question
+        if llm_response is None or llm_response.response_type not in ("question", "result"):
+            return QuestionResponse(
+                ai_message="No entendí bien, ¿podrías ser más específico?"
+                " Decime qué actividad querés agregar, qué días y cuánto dura.",
+                missing_fields=["name", "schedule"],
+            )
+
+        # 8. Enforce 4-exchange limit
+        if assistant_count >= 4 and llm_response.response_type == "question":
+            llm_response.response_type = "result"
+
+        # 9. Map response
+        if llm_response.response_type == "question":
+            ai_msg = llm_response.ai_message or "Contame un poco más para poder ayudarte."
+            return QuestionResponse(
+                ai_message=ai_msg,
+                missing_fields=llm_response.missing_fields or [],
+            )
+        else:
+            # Map to ResultResponse
+            schedule_models = []
+            for s in llm_response.schedule:
+                if isinstance(s, dict):
+                    schedule_models.append(
+                        ParsedSchedule(
+                            day=s.get("day", ""),
+                            start_time=s.get("start_time") or 0,
+                            end_time=s.get("end_time") or 0,
+                        )
+                    )
+
+            return ResultResponse(
+                name=llm_response.name,
+                activity_type=llm_response.activity_type,
+                is_fixed=llm_response.is_fixed,
+                is_anchor=llm_response.is_anchor,
+                difficulty=llm_response.difficulty,
+                priority=llm_response.priority,
+                schedule=schedule_models,
+                duracion_minutos=llm_response.duracion_minutos,
+                hora_preferida_inicio=llm_response.hora_preferida_inicio,
+                hora_preferida_fin=llm_response.hora_preferida_fin,
+                location=llm_response.location,
+                confidence=llm_response.confidence,
+                missing_fields=[],
+            )

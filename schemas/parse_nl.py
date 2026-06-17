@@ -4,6 +4,8 @@ These DTOs are shaped for the frontend wizard's mental model (day names,
 string enums), not the backend Actividad domain entity.
 """
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -73,3 +75,34 @@ class ParseNLResponse(BaseModel):
         description="Model confidence score between 0.0 and 1.0",
     )
     missing_fields: list[str] = []
+
+
+class ConversationMessage(BaseModel):
+    """A single message in the conversation history."""
+
+    role: Literal["user", "assistant"]
+    content: str
+
+
+class ParseNLConversationRequest(BaseModel):
+    """Request body for POST /api/v1/horarios/parse-nl-conversation."""
+
+    text: str = Field(min_length=1, description="Natural language activity description")
+    history: list[ConversationMessage] = []
+
+
+class QuestionResponse(BaseModel):
+    """Response when the LLM needs more information."""
+
+    type: Literal["question"] = "question"
+    ai_message: str
+    missing_fields: list[str] = []
+
+
+class ResultResponse(ParseNLResponse):
+    """Response when the LLM has enough information to produce structured data."""
+
+    type: Literal["result"] = "result"
+
+
+ParseNLConversationResponse = QuestionResponse | ResultResponse

@@ -7,7 +7,12 @@ from domain.ports.inbound.scheduler_port import AbstractSchedulerService
 from domain.services.llm_parser_service import LLMParserService
 from infrastructure.config.container import ApplicationContainer
 from infrastructure.adapters.inbound.api.mappers import solicitud_to_domain
-from schemas.parse_nl import ParseNLRequest, ParseNLResponse
+from schemas.parse_nl import (
+    ParseNLRequest,
+    ParseNLResponse,
+    ParseNLConversationRequest,
+    ParseNLConversationResponse,
+)
 from schemas.schedule_request import SolicitudHorario
 from schemas.schedule_response import BloqueTiempo, RespuestaHorario
 
@@ -50,3 +55,13 @@ def parse_actividad_nl(
 ):
     """Parse a natural language activity description into structured data."""
     return parser.parse(request.text)
+
+
+@router.post("/parse-nl-conversation", response_model=ParseNLConversationResponse)
+@inject
+async def parse_actividad_nl_conversation(
+    request: ParseNLConversationRequest,
+    parser: LLMParserService = Depends(Provide[ApplicationContainer.llm_parser_service]),
+):
+    """Parse an activity description conversationally, with accumulated context."""
+    return parser.parse_conversational(request.text, request.history)
