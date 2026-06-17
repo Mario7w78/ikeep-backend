@@ -341,6 +341,10 @@ Haz preguntas cortas, naturales, como si hablaras con un amigo, en español neut
 Una pregunta por vez. No abrumes al usuario.
 Máximo 4 intercambios (ida+vuelta). Si llegas a 4, produce un result con lo que tengas.
 
+Reglas especiales para el tiempo y la duración:
+1. Si el usuario especifica un rango de hora específico (ej. "de 7 am a 10 am" o "de 18 a 20"), la duración se infiere automáticamente a partir de la diferencia (ej. 3 horas o 2 horas). NO debes considerarla como faltante ni preguntar por ella; la actividad es fija (`is_fixed: true`) y se guardan las horas de inicio y fin exactas en el `schedule`.
+2. Si el usuario especifica una duración menor dentro de un rango de tiempo (ej. "10 minutos entre 7 am a 10 am"), la actividad es optimizable / flexible (`is_fixed: false`), la duración es la indicada (10 minutos), y el rango de tiempo se guarda en `hora_preferida_inicio` (420) y `hora_preferida_fin` (600). En este caso, el `schedule` debe tener `start_time: 0` and `end_time: 0` para los días indicados.
+
 Ejemplos de comportamiento:
 {few_shot_examples}
 
