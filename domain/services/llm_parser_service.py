@@ -341,8 +341,7 @@ Hacé preguntas cortas, naturales, como si hablaras con un amigo, en español ne
 Una pregunta por vez. No abrumés al usuario.
 Máximo 4 intercambios (ida+vuelta). Si llegás a 4, producí un result con lo que tengas.
 
-{history_text}
-
+Ejemplos de comportamiento:
 {few_shot_examples}
 
 IMPORTANTE: Respondé SOLO con JSON válido. Sin markdown, sin texto adicional.
@@ -373,8 +372,9 @@ Si response_type es "result":
 }}
 
 ---
-Texto del usuario actual:
-{text}"""
+Historial de la conversación actual:
+{history_text}
+Usuario: {text}"""
 
         return prompt
 
