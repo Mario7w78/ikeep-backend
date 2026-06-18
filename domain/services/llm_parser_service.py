@@ -259,7 +259,16 @@ class LLMParserService:
 
         history_text = "\n".join(history_lines) if history_lines else "(vacío)"
 
-        few_shot_examples = """Ejemplo 1 (vago → pregunta):
+        few_shot_examples = """Ejemplo 1 (saludo inicial → pregunta):
+Historial de la conversación: (vacío)
+Usuario: hola
+Respuesta: {
+  "response_type": "question",
+  "ai_message": "¡Hola! ¿Qué actividad quieres agregar hoy?",
+  "missing_fields": ["name", "schedule", "duracion_minutos"]
+}
+
+Ejemplo 2 (vago → pregunta):
 Historial de la conversación: (vacío)
 Usuario: hacer ejercicio
 Respuesta: {
@@ -268,7 +277,7 @@ Respuesta: {
   "missing_fields": ["activity_type"]
 }
 
-Ejemplo 2 (parcial → pregunta):
+Ejemplo 3 (parcial → pregunta):
 Usuario: clase de yoga los lunes
 Asistente: ¿Cuánto dura cada clase?
 Usuario: 45 minutos
@@ -278,7 +287,7 @@ Respuesta: {
   "missing_fields": ["schedule"]
 }
 
-Ejemplo 3 (completo → resultado):
+Ejemplo 4 (completo → resultado):
 Usuario: Estudiar matemáticas los lunes y miércoles de 18 a 20, es una tarea de dificultad alta
 Respuesta: {
   "response_type": "result",
@@ -300,7 +309,7 @@ Respuesta: {
   "missing_fields": []
 }
 
-Ejemplo 4 (ancla con ventana preferida → resultado):
+Ejemplo 5 (ancla con ventana preferida → resultado):
 Usuario: Desayunar todos los días en 15 minutos desde las 4am hasta las 5:40am
 Respuesta: {
   "response_type": "result",
@@ -325,7 +334,7 @@ Respuesta: {
   "missing_fields": []
 }
 
-Ejemplo 5 (vago → pregunta con horario):
+Ejemplo 6 (vago → pregunta con horario):
 Usuario: voy al gimnasio
 Respuesta: {
   "response_type": "question",
@@ -333,7 +342,7 @@ Respuesta: {
   "missing_fields": ["schedule", "duracion_minutos"]
 }
 
-Ejemplo 6 (corrección de horario tras superposición → resultado):
+Ejemplo 7 (corrección de horario tras superposición → resultado):
 Historial de la conversación:
 Usuario: Estudiar inglés los sábados de 7 a 10 am
 Asistente: El horario del día Sabado (07:00 - 10:00) se superpone con la actividad ya establecida "Trabajar" (08:00 - 12:00).
@@ -355,6 +364,30 @@ Respuesta: {
   "location": null,
   "confidence": 0.95,
   "missing_fields": []
+}
+
+Ejemplo 8 (acumulación de contexto en turnos → resultado):
+Historial de la conversación:
+Usuario: quiero agregar mi clase de álgebra
+Asistente: ¡Hola! ¿Qué días tienes la clase de álgebra y en qué horario?
+Usuario: los martes de 10:00 a 12:00
+Respuesta: {
+  "response_type": "result",
+  "name": "Clase de álgebra",
+  "activity_type": "clase",
+  "is_fixed": true,
+  "is_anchor": false,
+  "difficulty": null,
+  "priority": null,
+  "schedule": [
+    {"day": "martes", "start_time": 600, "end_time": 720}
+  ],
+  "duracion_minutos": 120,
+  "hora_preferida_inicio": null,
+  "hora_preferida_fin": null,
+  "location": null,
+  "confidence": 0.95,
+  "missing_fields": []
 }"""
 
 
@@ -365,6 +398,10 @@ Si hay suficiente información, responde con response_type 'result' y el JSON co
 Haz preguntas cortas, naturales, como si hablaras con un amigo, en español neutro (sin voseo argentino).
 Una pregunta por vez. No abrumes al usuario.
 Máximo 4 intercambios (ida+vuelta). Si llegas a 4, produce un result con lo que tengas.
+
+Reglas especiales para el contexto y saludos:
+1. Si el usuario te saluda (ej. "hola", "buenas"), responde saludando amigablemente (ej. "¡Hola! ¿Qué actividad quieres agregar hoy?") en tu "ai_message" en el mismo mensaje.
+2. Debes recordar y acumular la información de toda la conversación en el historial. Si el usuario te dio el nombre de la actividad o los días en un mensaje anterior y ahora te da otro detalle (como las horas), el JSON resultante de tipo "result" debe incluir el nombre ("name") y demás campos que dio antes. No ignores ni olvides la información provista en los turnos anteriores.
 
 Reglas especiales para el tiempo y la duración:
 1. Si el usuario especifica un rango de hora específico (ej. "de 7 am a 10 am" o "de 18 a 20"), la duración se infiere automáticamente a partir de la diferencia (ej. 3 horas o 2 horas). NO debes considerarla como faltante ni preguntar por ella; la actividad es fija (`is_fixed: true`) y se guardan las horas de inicio y fin exactas en el `schedule`.
