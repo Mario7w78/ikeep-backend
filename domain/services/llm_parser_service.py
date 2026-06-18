@@ -132,6 +132,23 @@ _FEW_SHOT_EXAMPLES = [
             "missing_fields": ["start_time", "end_time"],
         },
     },
+    {
+        "text": "Practicar guitarra los martes, vos elegí el horario",
+        "output": {
+            "name": "Practicar guitarra",
+            "activity_type": "tarea",
+            "is_fixed": False,
+            "is_anchor": True,
+            "difficulty": "media",
+            "priority": "media",
+            "schedule": [
+                {"day": "Martes", "start_time": 0, "end_time": 0},
+            ],
+            "location": None,
+            "confidence": 0.85,
+            "missing_fields": ["start_time", "end_time", "location"],
+        },
+    },
 ]
 
 
@@ -165,6 +182,12 @@ def _build_few_shot_prompt(text: str) -> str:
         '- Si el usuario solo dice "de X a Y" (sin mencionar duración por\n'
         "  separado), es un horario FIJO. Usá is_fixed=true con start_time y\n"
         "  end_time en schedule, y NO uses hora_preferida_*.\n\n"
+        "Regla de delegación del horario:\n"
+        '- Si el usuario te dice "elegí vos", "tú decides", "cuando sea", "lo que sea",\n'
+        '  "como sea", "lo que mejor convenga" o similar, está delegando en vos la\n'
+        '  elección del horario. NO inventes un horario. Creá la actividad como ancla\n'
+        '  (is_fixed: false, is_anchor: true) con los días que ya tiene y start_time=0,\n'
+        "  end_time=0 en cada entrada del schedule.\n\n"
         "Devuelve exclusivamente un objeto JSON que cumpla con el esquema indicado.\n"
         "No incluyas texto adicional, explicaciones ni formato markdown.\n\n"
         "Ejemplos:\n\n"
@@ -388,6 +411,30 @@ Respuesta: {
   "location": null,
   "confidence": 0.95,
   "missing_fields": []
+}
+
+Ejemplo 9 (delegación de horario → resultado con ancla):
+Historial de la conversación:
+Usuario: quiero agregar una clase de yoga los lunes
+Asistente: ¿A qué hora quieres hacer la clase de yoga los lunes?
+Usuario: vos elegí el horario
+Respuesta: {
+  "response_type": "result",
+  "name": "Clase de yoga",
+  "activity_type": "clase",
+  "is_fixed": false,
+  "is_anchor": true,
+  "difficulty": null,
+  "priority": null,
+  "schedule": [
+    {"day": "lunes", "start_time": 0, "end_time": 0}
+  ],
+  "duracion_minutos": null,
+  "hora_preferida_inicio": null,
+  "hora_preferida_fin": null,
+  "location": null,
+  "confidence": 0.85,
+  "missing_fields": ["start_time", "end_time"]
 }"""
 
 
@@ -408,6 +455,7 @@ Reglas especiales para el tiempo y la duración:
 2. Si el usuario especifica una duración menor dentro de un rango de tiempo (ej. "10 minutos entre 7 am a 10 am"), la actividad es optimizable / flexible (`is_fixed: false`), la duración es la indicada (10 minutos), y el rango de tiempo se guarda en `hora_preferida_inicio` (420) y `hora_preferida_fin` (600). En este caso, el `schedule` debe tener `start_time: 0` and `end_time: 0` para los días indicados.
 3. Si el usuario realiza una corrección (ej. cambia la hora o el día), debes actualizar los campos correspondientes en el JSON resultante. Nunca mantengas los valores antiguos si el usuario explícitamente pidió cambiarlos en su último mensaje.
 4. Si el usuario corrige la hora de inicio pero no especifica la duración (ej. "cambialo a las 11 am"), y en el historial se puede deducir la duración previa (ej. de 7 a 10 am = 3 horas), mantén esa duración previa y calcula la nueva hora de fin basándote en ella (de 11 am a 2 pm). No vuelvas a preguntar por la duración si ya estaba establecida.
+5. Si el usuario te dice "vos decidí", "elige tú", "tú decides", "cuando sea", "lo que sea", "como sea", "lo que mejor convenga" o similar sobre el horario, NO inventes un horario por defecto. Creá la actividad como ancla (is_fixed: false, is_anchor: true) con los días que ya tiene y start_time=0, end_time=0 en schedule. El usuario está delegando en vos la elección del horario, lo que significa que el scheduler debe encontrar el mejor momento disponible.
 
 Ejemplos de comportamiento:
 {few_shot_examples}
