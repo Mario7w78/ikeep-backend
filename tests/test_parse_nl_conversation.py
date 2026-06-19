@@ -221,8 +221,9 @@ class TestParseNLConversation:
         assert "días" in result.ai_message or "¿Qué" in result.ai_message
 
     def test_invalid_json_retry_and_fallback(self):
-        """If LLM returns invalid JSON twice, service returns fallback question."""
+        """If LLM returns invalid JSON twice, service raises LLMGatewayException."""
         from domain.services.llm_parser_service import LLMParserService
+        from infrastructure.adapters.inbound.api.middleware import LLMGatewayException
 
         mock_llm = MagicMock()
         # Both calls fail (return None doesn't happen since generate returns BaseModel)
@@ -233,11 +234,9 @@ class TestParseNLConversation:
         ]
 
         service = LLMParserService(mock_llm)
-        result = service.parse_conversational("hacer ejercicio", [])
+        with pytest.raises(LLMGatewayException):
+            service.parse_conversational("hacer ejercicio", [])
 
-        # Should get fallback QuestionResponse
-        assert isinstance(result, QuestionResponse)
-        assert result.type == "question"
         assert mock_llm.generate.call_count == 2
 
     def test_retry_happens_on_first_failure(self):

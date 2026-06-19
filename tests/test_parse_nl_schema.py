@@ -32,7 +32,7 @@ class TestParsedSchedule:
         from schemas.parse_nl import ParsedSchedule
 
         sched = ParsedSchedule(day="Lunes", start_time=480, end_time=540)
-        assert sched.day == "Lunes"
+        assert sched.day == "lunes"
         assert sched.start_time == 480
         assert sched.end_time == 540
 

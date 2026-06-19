@@ -47,7 +47,7 @@ class TestParseNLEndpoint:
         assert data["name"] == "Futbol"
         assert data["confidence"] == 0.95
         assert len(data["schedule"]) == 1
-        assert data["schedule"][0]["day"] == "Lunes"
+        assert data["schedule"][0]["day"] == "lunes"
 
     def test_parse_nl_empty_text_returns_422(self, client):
         """Empty text should return 422 validation error."""

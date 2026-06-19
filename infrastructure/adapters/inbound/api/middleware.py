@@ -49,6 +49,12 @@ class LLMTimeoutException(DomainException):
     pass
 
 
+class LLMGatewayException(DomainException):
+    """Raised when the LLM service fails on both attempts, resulting in an HTTP 502 Bad Gateway."""
+
+    pass
+
+
 # ─── Status code mapping ─────────────────────────────────────────
 
 EXCEPTION_STATUS_MAP: dict[type, int] = {
@@ -56,6 +62,7 @@ EXCEPTION_STATUS_MAP: dict[type, int] = {
     SolverException: 409,
     LLMServiceException: 503,
     LLMTimeoutException: 503,
+    LLMGatewayException: 502,
     DomainException: 422,
     ValueError: 422,
     TypeError: 422,

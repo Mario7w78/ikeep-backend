@@ -15,7 +15,9 @@ from schemas.parse_nl import (
     ParseNLResponse,
     QuestionResponse,
     ResultResponse,
+    ChatResponse,
 )
+from infrastructure.adapters.inbound.api.middleware import LLMGatewayException
 
 logger = logging.getLogger(__name__)
 
@@ -439,28 +441,39 @@ Respuesta: {
 
 
         prompt = f"""Eres un asistente que ayuda a crear actividades académicas para un planificador horario.
-Decide si la información del usuario es SUFICIENTE para producir una actividad estructurada, o si necesitas preguntar algo más.
-Si falta información CRÍTICA (nombre, días, duración), responde con response_type 'question' y una pregunta natural.
+Decide si la información del usuario es SUFICIENTE para producir una actividad estructurada, o si necesitas preguntar algo más, o si es charla libre / fuera de tema.
+Si la consulta del usuario es charla libre, saludo casual, despedida o temas fuera del contexto de agregar actividades, responde con response_type 'chat' y una respuesta amigable.
+Si falta información CRÍTICA (nombre, días, duración), responde con response_type 'question' y una pregunta corta y natural.
 Si hay suficiente información, responde con response_type 'result' y el JSON completo.
 Haz preguntas cortas, naturales, como si hablaras con un amigo, en español neutro (sin voseo argentino).
 Una pregunta por vez. No abrumes al usuario.
 Máximo 4 intercambios (ida+vuelta). Si llegas a 4, produce un result con lo que tengas.
 
 Reglas especiales para el contexto y saludos:
-1. Si el usuario te saluda (ej. "hola", "buenas"), responde saludando amigablemente (ej. "¡Hola! ¿Qué actividad quieres agregar hoy?") en tu "ai_message" en el mismo mensaje.
+1. Si el usuario te saluda de forma casual (ej. "hola", "buenas") o hace charla libre, responde usando response_type 'chat' con un mensaje amigable en 'ai_message'.
 2. Debes recordar y acumular la información de toda la conversación en el historial. Si el usuario te dio el nombre de la actividad o los días en un mensaje anterior y ahora te da otro detalle (como las horas), el JSON resultante de tipo "result" debe incluir el nombre ("name") y demás campos que dio antes. No ignores ni olvides la información provista en los turnos anteriores.
 
 Reglas especiales para el tiempo y la duración:
 1. Si el usuario especifica un rango de hora específico (ej. "de 7 am a 10 am" o "de 18 a 20"), la duración se infiere automáticamente a partir de la diferencia (ej. 3 horas o 2 horas). NO debes considerarla como faltante ni preguntar por ella; la actividad es fija (`is_fixed: true`) y se guardan las horas de inicio y fin exactas en el `schedule`.
-2. Si el usuario especifica una duración menor dentro de un rango de tiempo (ej. "10 minutos entre 7 am a 10 am"), la actividad es optimizable / flexible (`is_fixed: false`), la duración es la indicada (10 minutos), y el rango de tiempo se guarda en `hora_preferida_inicio` (420) y `hora_preferida_fin` (600). En este caso, el `schedule` debe tener `start_time: 0` and `end_time: 0` para los días indicados.
-3. Si el usuario realiza una corrección (ej. cambia la hora o el día), debes actualizar los campos correspondientes en el JSON resultante. Nunca mantengas los valores antiguos si el usuario explícitamente pidió cambiarlos en su último mensaje.
-4. Si el usuario corrige la hora de inicio pero no especifica la duración (ej. "cambialo a las 11 am"), y en el historial se puede deducir la duración previa (ej. de 7 a 10 am = 3 horas), mantén esa duración previa y calcula la nueva hora de fin basándote en ella (de 11 am a 2 pm). No vuelvas a preguntar por la duración si ya estaba establecida.
-5. Si el usuario te dice "vos decidí", "elige tú", "tú decides", "cuando sea", "lo que sea", "como sea", "lo que mejor convenga" o similar sobre el horario, NO inventes un horario por defecto. Creá la actividad como ancla (is_fixed: false, is_anchor: true) con los días que ya tiene y start_time=0, end_time=0 en schedule. El usuario está delegando en vos la elección del horario, lo que significa que el scheduler debe encontrar el mejor momento disponible.
+2. Si el usuario especifica un rango y además indica una duración, y esa duración coincide exactamente con la diferencia de ese rango (ej. "3 horas de 7 am a 10 am" o "duración 2 horas de 18 a 20"), trátalo como un horario FIJO (`is_fixed: true`, `is_anchor: false`), guardando las horas exactas en el `schedule` y dejando las horas preferidas en null.
+3. Si el usuario especifica una duración menor dentro de un rango de tiempo (ej. "10 minutos entre 7 am a 10 am"), la actividad es optimizable / flexible (`is_fixed: false`), la duración es la indicada (10 minutos), y el rango de tiempo se guarda en `hora_preferida_inicio` (420) y `hora_preferida_fin` (600). En este caso, el `schedule` debe tener `start_time: 0` and `end_time: 0` para los días indicados.
+4. Si el usuario realiza una corrección (ej. cambia la hora o el día), debes actualizar los campos correspondientes en el JSON resultante. Nunca mantengas los valores antiguos si el usuario explícitamente pidió cambiarlos en su último mensaje.
+5. Si el usuario corrige la hora de inicio pero no especifica la duración (ej. "cambialo a las 11 am"), y en el historial se puede deducir la duración previa (ej. de 7 a 10 am = 3 horas), mantén esa duración previa y calcula la nueva hora de fin basándote en ella (de 11 am a 2 pm). No vuelvas a preguntar por la duración si ya estaba establecida.
+6. Si el usuario delega el horario con cualquier frase de delegación de horario (incluso si no está en una lista cerrada, ej. "vos decidí", "elige tú", "tú decides", "cuando sea", "lo que sea", "como sea", "cuando puedas", "lo que mejor convenga", "cualquier hora", "cuando sea mejor", etc.), debes marcar la actividad con `is_anchor: true`, `is_fixed: false`, y establecer `start_time: 0` y `end_time: 0` en el schedule para los días correspondientes. No inventes un horario por defecto.
+
+Regla de anti-alucinación:
+1. Si un campo (como ubicación, prioridad, dificultad, tipo de actividad, etc.) no se menciona en la conversación y no se puede deducir, déjalo en null en el JSON de salida. No asumas ni inventes valores por defecto para campos no provistos.
 
 Ejemplos de comportamiento:
 {few_shot_examples}
 
 IMPORTANTE: Responde SOLO con JSON válido. Sin markdown, sin texto adicional.
+
+Si response_type es "chat":
+{{
+  "response_type": "chat",
+  "ai_message": "[tu respuesta de charla casual / saludo / despedida / fuera de tema]"
+}}
 
 Si response_type es "question":
 {{
@@ -478,7 +491,7 @@ Si response_type es "result":
   "is_anchor": true | false,
   "difficulty": "baja" | "media" | "alta" | null,
   "priority": "baja" | "media" | "alta" | null,
-  "schedule": [{{"day": "lunes" | "martes" | "miércoles" | "jueves" | "viernes" | "sábado" | "domingo", "start_time": minutos | 0, "end_time": minutos | 0}}],
+  "schedule": [ {{"day": "lunes" | "martes" | "miércoles" | "jueves" | "viernes" | "sábado" | "domingo", "start_time": minutos | 0, "end_time": minutos | 0}} ],
   "duracion_minutos": int | null,
   "hora_preferida_inicio": int | null,
   "hora_preferida_fin": int | null,
@@ -494,7 +507,7 @@ Usuario: {text}"""
 
         return prompt
 
-    def parse_conversational(self, text: str, history: list[dict]) -> QuestionResponse | ResultResponse:
+    def parse_conversational(self, text: str, history: list[dict]) -> QuestionResponse | ChatResponse | ResultResponse:
         """Parse an activity description conversationally, accumulating context.
 
         Args:
@@ -502,24 +515,27 @@ Usuario: {text}"""
             history: List of prior exchanges as {role, content} dicts.
 
         Returns:
-            A QuestionResponse if more info is needed, or a ResultResponse if complete.
+            A QuestionResponse if more info is needed, a ChatResponse for casual chat,
+            or a ResultResponse if complete.
         """
         # 1. Truncate history to last 12 entries if needed
         if len(history) > 12:
             history = history[-12:]
 
-        # 2. Count assistant messages to enforce max 4 exchanges
-        assistant_count = sum(
-            1 for m in history
-            if (m.get("role") if isinstance(m, dict) else getattr(m, "role", None)) == "assistant"
-        )
+        # 2. Count assistant messages to enforce max 4 exchanges (excluding chat responses)
+        assistant_count = 0
+        for m in history:
+            role_val = m.get("role") if isinstance(m, dict) else getattr(m, "role", None)
+            type_val = m.get("type") if isinstance(m, dict) else getattr(m, "type", None)
+            if role_val == "assistant" and type_val != "chat":
+                assistant_count += 1
 
         # 3. Build prompt
         prompt = self._build_conversational_prompt(text, history)
 
         # 4. Define the response model for the LLM
         class ConversationalLLMResponse(BaseModel):
-            response_type: Literal["question", "result"] = "question"
+            response_type: Literal["question", "result", "chat"] = "question"
             ai_message: str | None = None
             missing_fields: list[str] = []
             name: str | None = None
@@ -538,65 +554,123 @@ Usuario: {text}"""
         # 5. Call LLM
         try:
             llm_response = self._llm_port.generate(prompt, ConversationalLLMResponse)
-        except Exception:
+        except Exception as e:
+            logger.warning("First LLM call failed: %s", e)
             llm_response = None
 
         # 6. Retry once if failed
-        if llm_response is None or llm_response.response_type not in ("question", "result"):
+        if llm_response is None or llm_response.response_type not in ("question", "result", "chat"):
             try:
                 retry_prompt = (
                     prompt
                     + "\n\n IMPORTANTE: Respondé SOLO con JSON válido."
-                    " Tu respuesta anterior no fue válida. Usá response_type 'question' o 'result'."
+                    " Tu respuesta anterior no fue válida. Usá response_type 'question', 'result' o 'chat'."
                 )
                 llm_response = self._llm_port.generate(retry_prompt, ConversationalLLMResponse)
-            except Exception:
+            except Exception as e:
+                logger.error("Second LLM call failed: %s", e)
                 llm_response = None
 
-        # 7. If still failed, return fallback question
-        if llm_response is None or llm_response.response_type not in ("question", "result"):
-            return QuestionResponse(
-                ai_message="No entendí bien, ¿podrías ser más específico?"
-                " Dime qué actividad quieres agregar, qué días y cuánto dura.",
-                missing_fields=["name", "schedule"],
+        # 7. If still failed, raise custom exception for HTTP 502
+        if llm_response is None or llm_response.response_type not in ("question", "result", "chat"):
+            raise LLMGatewayException(
+                "Failed to parse activity description conversationally after multiple attempts due to LLM service errors."
             )
 
         # 8. Enforce 4-exchange limit
+        forced_result = False
         if assistant_count >= 4 and llm_response.response_type == "question":
             llm_response.response_type = "result"
+            forced_result = True
 
         # 9. Map response
-        if llm_response.response_type == "question":
+        if llm_response.response_type == "chat":
+            ai_msg = llm_response.ai_message or "¡Hola! ¿En qué te puedo ayudar hoy?"
+            return ChatResponse(ai_message=ai_msg)
+
+        elif llm_response.response_type == "question":
             ai_msg = llm_response.ai_message or "Cuéntame un poco más para poder ayudarte."
             return QuestionResponse(
                 ai_message=ai_msg,
                 missing_fields=llm_response.missing_fields or [],
             )
+
         else:
             # Map to ResultResponse
-            schedule_models = []
-            for s in llm_response.schedule:
-                if isinstance(s, dict):
-                    schedule_models.append(
-                        ParsedSchedule(
-                            day=s.get("day", ""),
-                            start_time=s.get("start_time") or 0,
-                            end_time=s.get("end_time") or 0,
+            is_fixed = llm_response.is_fixed
+            is_anchor = llm_response.is_anchor
+            duracion = llm_response.duracion_minutos
+            pref_inicio = llm_response.hora_preferida_inicio
+            pref_fin = llm_response.hora_preferida_fin
+
+            # Handle range/duration ambiguity: equal range and duration is fixed
+            if pref_inicio is not None and pref_fin is not None and duracion is not None:
+                if duracion == (pref_fin - pref_inicio):
+                    is_fixed = True
+                    is_anchor = False
+                    pref_inicio_val = pref_inicio
+                    pref_fin_val = pref_fin
+                    pref_inicio = None
+                    pref_fin = None
+                    
+                    schedule_models = []
+                    for s in llm_response.schedule:
+                        if isinstance(s, dict):
+                            st = s.get("start_time")
+                            et = s.get("end_time")
+                            if st in (0, None) and et in (0, None):
+                                st = pref_inicio_val
+                                et = pref_fin_val
+                            day_val = s.get("day", "")
+                            schedule_models.append(
+                                ParsedSchedule(
+                                    day=day_val.lower() if day_val else "",
+                                    start_time=st or 0,
+                                    end_time=et or 0,
+                                )
+                            )
+                else:
+                    schedule_models = []
+                    for s in llm_response.schedule:
+                        if isinstance(s, dict):
+                            day_val = s.get("day", "")
+                            schedule_models.append(
+                                ParsedSchedule(
+                                    day=day_val.lower() if day_val else "",
+                                    start_time=s.get("start_time") or 0,
+                                    end_time=s.get("end_time") or 0,
+                                )
+                            )
+            else:
+                schedule_models = []
+                for s in llm_response.schedule:
+                    if isinstance(s, dict):
+                        day_val = s.get("day", "")
+                        schedule_models.append(
+                            ParsedSchedule(
+                                day=day_val.lower() if day_val else "",
+                                start_time=s.get("start_time") or 0,
+                                end_time=s.get("end_time") or 0,
+                            )
                         )
-                    )
+
+            # Defensive post-parsing validation: is_fixed and is_anchor cannot both be true.
+            # If both are true, is_fixed takes priority and is_anchor is set to false.
+            if is_fixed and is_anchor:
+                is_anchor = False
 
             return ResultResponse(
                 name=llm_response.name,
                 activity_type=llm_response.activity_type,
-                is_fixed=llm_response.is_fixed,
-                is_anchor=llm_response.is_anchor,
+                is_fixed=is_fixed,
+                is_anchor=is_anchor,
                 difficulty=llm_response.difficulty,
                 priority=llm_response.priority,
                 schedule=schedule_models,
-                duracion_minutos=llm_response.duracion_minutos,
-                hora_preferida_inicio=llm_response.hora_preferida_inicio,
-                hora_preferida_fin=llm_response.hora_preferida_fin,
+                duracion_minutos=duracion,
+                hora_preferida_inicio=pref_inicio,
+                hora_preferida_fin=pref_fin,
                 location=llm_response.location,
                 confidence=llm_response.confidence,
-                missing_fields=[],
+                missing_fields=llm_response.missing_fields or [] if (assistant_count >= 4 or forced_result) else [],
             )

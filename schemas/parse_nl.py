@@ -6,7 +6,7 @@ string enums), not the backend Actividad domain entity.
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ParseNLRequest(BaseModel):
@@ -21,6 +21,11 @@ class ParsedSchedule(BaseModel):
     day: str = Field(description="Day name in Spanish, e.g. 'Lunes', 'Martes'")
     start_time: int = Field(ge=0, description="Start time in minutes from midnight")
     end_time: int = Field(ge=0, description="End time in minutes from midnight")
+
+    @field_validator("day")
+    @classmethod
+    def normalize_day(cls, v: str) -> str:
+        return v.lower() if v else v
 
 
 class ParseNLResponse(BaseModel):
@@ -82,6 +87,7 @@ class ConversationMessage(BaseModel):
 
     role: Literal["user", "assistant"]
     content: str
+    type: Literal["question", "result", "chat"] | None = None
 
 
 class ParseNLConversationRequest(BaseModel):
@@ -99,10 +105,17 @@ class QuestionResponse(BaseModel):
     missing_fields: list[str] = []
 
 
+class ChatResponse(BaseModel):
+    """Response when the user is chatting or asking off-topic questions."""
+
+    type: Literal["chat"] = "chat"
+    ai_message: str
+
+
 class ResultResponse(ParseNLResponse):
     """Response when the LLM has enough information to produce structured data."""
 
     type: Literal["result"] = "result"
 
 
-ParseNLConversationResponse = QuestionResponse | ResultResponse
+ParseNLConversationResponse = QuestionResponse | ChatResponse | ResultResponse
