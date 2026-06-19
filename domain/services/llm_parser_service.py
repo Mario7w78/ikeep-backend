@@ -135,7 +135,7 @@ _FEW_SHOT_EXAMPLES = [
         },
     },
     {
-        "text": "Practicar guitarra los martes, vos elegí el horario",
+        "text": "Practicar guitarra los martes, elige tú el horario",
         "output": {
             "name": "Practicar guitarra",
             "activity_type": "tarea",
@@ -171,23 +171,23 @@ def _build_few_shot_prompt(text: str) -> str:
         '- "is_fixed": false, "is_anchor": false → el usuario NO dijo ni día ni horario\n\n'
         "Regla de duración:\n"
         '- Si el usuario menciona una duración (ej: "en 15 min", "10 minutos", "media hora")\n'
-        "  pero NO especifica una hora de inicio ni fin, usá el campo duracion_minutos.\n"
+        "  pero NO especifica una hora de inicio ni fin, usa el campo duracion_minutos.\n"
         "  No interpretes 'en X min' como una hora del día. Los start_time / end_time\n"
         "  deben quedar en 0 para indicar que el horario aún no está definido.\n\n"
         "Regla de rango preferido (hora_preferida_inicio / hora_preferida_fin):\n"
-        '- Usá estos campos SOLO si el usuario dice "desde las X hasta las Y" o\n'
+        '- Usa estos campos SOLO si el usuario dice "desde las X hasta las Y" o\n'
         '  "entre las X y las Y" Y ADEMÁS especifica una duración separada.\n'
         "  En ese caso NO es un horario fijo, es un RANGO donde la actividad\n"
         '  puede ubicarse. Ej: "en 15 min desde las 4am hasta las 5:40am" →\n'
         "  is_anchor=true, duracion_minutos=15, hora_preferida_inicio=240,\n"
         "  hora_preferida_fin=340, schedule con start_time=0, end_time=0.\n"
         '- Si el usuario solo dice "de X a Y" (sin mencionar duración por\n'
-        "  separado), es un horario FIJO. Usá is_fixed=true con start_time y\n"
+        "  separado), es un horario FIJO. Usa is_fixed=true con start_time y\n"
         "  end_time en schedule, y NO uses hora_preferida_*.\n\n"
         "Regla de delegación del horario:\n"
-        '- Si el usuario te dice "elegí vos", "tú decides", "cuando sea", "lo que sea",\n'
-        '  "como sea", "lo que mejor convenga" o similar, está delegando en vos la\n'
-        '  elección del horario. NO inventes un horario. Creá la actividad como ancla\n'
+        '- Si el usuario te dice "elige tú", "tú decides", "cuando sea", "lo que sea",\n'
+        '  "como sea", "lo que mejor convenga" o similar, está delegando en ti la\n'
+        '  elección del horario. NO inventes un horario. Crea la actividad como ancla\n'
         '  (is_fixed: false, is_anchor: true) con los días que ya tiene y start_time=0,\n'
         "  end_time=0 en cada entrada del schedule.\n\n"
         "Devuelve exclusivamente un objeto JSON que cumpla con el esquema indicado.\n"
@@ -419,7 +419,7 @@ Ejemplo 9 (delegación de horario → resultado con ancla):
 Historial de la conversación:
 Usuario: quiero agregar una clase de yoga los lunes
 Asistente: ¿A qué hora quieres hacer la clase de yoga los lunes?
-Usuario: vos elegí el horario
+Usuario: elige tú el horario
 Respuesta: {
   "response_type": "result",
   "name": "Clase de yoga",
@@ -459,7 +459,7 @@ Reglas especiales para el tiempo y la duración:
 3. Si el usuario especifica una duración menor dentro de un rango de tiempo (ej. "10 minutos entre 7 am a 10 am"), la actividad es optimizable / flexible (`is_fixed: false`), la duración es la indicada (10 minutos), y el rango de tiempo se guarda en `hora_preferida_inicio` (420) y `hora_preferida_fin` (600). En este caso, el `schedule` debe tener `start_time: 0` and `end_time: 0` para los días indicados.
 4. Si el usuario realiza una corrección (ej. cambia la hora o el día), debes actualizar los campos correspondientes en el JSON resultante. Nunca mantengas los valores antiguos si el usuario explícitamente pidió cambiarlos en su último mensaje.
 5. Si el usuario corrige la hora de inicio pero no especifica la duración (ej. "cambialo a las 11 am"), y en el historial se puede deducir la duración previa (ej. de 7 a 10 am = 3 horas), mantén esa duración previa y calcula la nueva hora de fin basándote en ella (de 11 am a 2 pm). No vuelvas a preguntar por la duración si ya estaba establecida.
-6. Si el usuario delega el horario con cualquier frase de delegación de horario (incluso si no está en una lista cerrada, ej. "vos decidí", "elige tú", "tú decides", "cuando sea", "lo que sea", "como sea", "cuando puedas", "lo que mejor convenga", "cualquier hora", "cuando sea mejor", etc.), debes marcar la actividad con `is_anchor: true`, `is_fixed: false`, y establecer `start_time: 0` y `end_time: 0` en el schedule para los días correspondientes. No inventes un horario por defecto.
+6. Si el usuario delega el horario con cualquier frase de delegación de horario (incluso si no está en una lista cerrada, ej. "tú decide", "elige tú", "tú decides", "cuando sea", "lo que sea", "como sea", "cuando puedas", "lo que mejor convenga", "cualquier hora", "cuando sea mejor", etc.), debes marcar la actividad con `is_anchor: true`, `is_fixed: false`, y establecer `start_time: 0` y `end_time: 0` en el schedule para los días correspondientes. No inventes un horario por defecto.
 
 Regla de anti-alucinación:
 1. Si un campo (como ubicación, prioridad, dificultad, tipo de actividad, etc.) no se menciona en la conversación y no se puede deducir, déjalo en null en el JSON de salida. No asumas ni inventes valores por defecto para campos no provistos.
@@ -563,8 +563,8 @@ Usuario: {text}"""
             try:
                 retry_prompt = (
                     prompt
-                    + "\n\n IMPORTANTE: Respondé SOLO con JSON válido."
-                    " Tu respuesta anterior no fue válida. Usá response_type 'question', 'result' o 'chat'."
+                    + "\n\n IMPORTANTE: Responde SOLO con JSON válido."
+                    " Tu respuesta anterior no fue válida. Usa response_type 'question', 'result' o 'chat'."
                 )
                 llm_response = self._llm_port.generate(retry_prompt, ConversationalLLMResponse)
             except Exception as e:
