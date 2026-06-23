@@ -141,8 +141,8 @@ def test_cronico_alta_penalty_higher_than_media():
     # terms[0] = ALTA (t0, day 0), terms[1] = MEDIA (t1, day 0)
     # ALTA max = 1440 * w * 2 = 28800, MEDIA max = 1440 * w = 14400
     # domain is a flat [min, max] list in newer OR-Tools protos
-    alta_max = terms[0].Proto().domain[1]
-    media_max = terms[1].Proto().domain[1]
+    alta_max = terms[0].domain.max()
+    media_max = terms[1].domain.max()
     assert alta_max > media_max, (
         f"ALTA penalty max ({alta_max}) should exceed MEDIA max ({media_max})"
     )

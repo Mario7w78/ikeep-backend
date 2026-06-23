@@ -576,7 +576,7 @@ def test_insufficient_capacity_raises():
         actividades_optimizables_puras=tareas,
         contexto_usuario=ctx,
     )
-    with pytest.raises(ValueError, match="dura.*min.*solo.*min"):
+    with pytest.raises(ValueError, match="ocupa.*min.*duración.*disponible.*solo.*min"):
         ScheduleOptimizer(timeout_seconds=1).generar(request)
 
 

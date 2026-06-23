@@ -302,6 +302,37 @@ class TestTravelConstraints:
         travel_blocks = [b for b in result.bloques if b.id_actividad.startswith("viaje_")]
         assert len(travel_blocks) >= 1
 
+    def test_flexible_task_does_not_overlap_fixed_task_travel_time(self):
+        """Flexible task should not overlap with fixed activity's travel_to time."""
+        fixed = _make_task(
+            "fixed1", tipo=TipoActividad.CLASE, dia=0,
+            hora_inicio=420, hora_fin=480, duracion=60,
+        )
+        # travel_to = 90 min. The travel block will be from 330 to 420 (5:30 AM to 7:00 AM)
+        fixed.travel_to = 90
+
+        # Flexible task of 60 mins that is requested to run within [330, 480]
+        # Since [420, 480] is fixed and [330, 420] is travel, it should be scheduled before 330
+        task = _make_task(
+            "flex1", duracion=60, dia=0,
+        )
+        task.hora_preferida_inicio = 240 # 4:00 AM
+        task.hora_preferida_fin = 480    # 8:00 AM
+
+        solicitud = SolicitudHorario(
+            actividades_fijas=[fixed],
+            actividades_optimizables_puras=[task],
+            contexto_usuario=_make_ctx(horario_inicio=180, horario_fin=1200),
+        )
+        optimizer = ScheduleOptimizer(timeout_seconds=5)
+        result = optimizer.generar(solicitud)
+
+        # Retrieve the scheduled time for flex1
+        flex_block = next(b for b in result.bloques if b.id_actividad == "flex1")
+        # Since fixed travel is 330 to 420, flex1 (duration 60) must end at or before 330 (5:30 AM)
+        # So its start time must be <= 270 (4:30 AM)
+        assert flex_block.hora_fin <= 330
+
 
 # ─── Edge cases ────────────────────────────────────────────────────
 

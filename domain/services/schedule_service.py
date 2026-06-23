@@ -254,6 +254,20 @@ class ScheduleOptimizer(AbstractSchedulerService):
         e_abs = model.NewConstant(abs_end)
         iv = model.NewIntervalVar(s_abs, dur, e_abs, f"fix_{act.id}_d{act.dia}")
         state["intervals_abs"].append(iv)
+
+        tt = act.travel_to or 0
+        if tt > 0:
+            s_travel = model.NewConstant(abs_start - tt)
+            e_travel = model.NewConstant(abs_start)
+            iv_travel_to = model.NewIntervalVar(s_travel, tt, e_travel, f"fix_{act.id}_travel_to_d{act.dia}")
+            state["intervals_abs"].append(iv_travel_to)
+
+        tf = act.travel_from or 0
+        if tf > 0:
+            s_travel_from = model.NewConstant(abs_end)
+            e_travel_from = model.NewConstant(abs_end + tf)
+            iv_travel_from = model.NewIntervalVar(s_travel_from, tf, e_travel_from, f"fix_{act.id}_travel_from_d{act.dia}")
+            state["intervals_abs"].append(iv_travel_from)
         state["fixed"][act.id] = {
             "s": model.NewConstant(act.hora_inicio),  # day-relative for travel
             "e": model.NewConstant(act.hora_fin),     # day-relative for travel
