@@ -362,3 +362,22 @@ class TestParseNLConversation:
         result = service.parse_conversational("clase de yoga", history)
         assert isinstance(result, QuestionResponse)
 
+    def test_conversational_prompt_includes_agenda_context(self):
+        """The conversational prompt should include agenda context if provided."""
+        from domain.services.llm_parser_service import LLMParserService
+
+        mock_llm = MagicMock()
+        mock_llm.generate.return_value = self._mock_question_response()
+
+        service = LLMParserService(mock_llm)
+        agenda_ctx = "Actividades existentes:\n1. Clase de Matemáticas - lunes 8am"
+
+        service.parse_conversational("nueva actividad", [], agenda_context=agenda_ctx)
+
+        call_args = mock_llm.generate.call_args
+        prompt = call_args[0][0]
+
+        assert "Actividades ya programadas en la agenda del usuario" in prompt
+        assert agenda_ctx in prompt
+
+

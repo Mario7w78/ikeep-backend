@@ -64,4 +64,4 @@ async def parse_actividad_nl_conversation(
     parser: LLMParserService = Depends(Provide[ApplicationContainer.llm_parser_service]),
 ):
     """Parse an activity description conversationally, with accumulated context."""
-    return parser.parse_conversational(request.text, request.history)
+    return parser.parse_conversational(request.text, request.history, request.agenda_context)

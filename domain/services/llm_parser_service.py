@@ -184,6 +184,16 @@ def _build_few_shot_prompt(text: str) -> str:
         '- Si el usuario solo dice "de X a Y" (sin mencionar duración por\n'
         "  separado), es un horario FIJO. Usa is_fixed=true con start_time y\n"
         "  end_time en schedule, y NO uses hora_preferida_*.\n\n"
+        "Reglas de conversión de horas AM/PM a minutos desde la medianoche:\n"
+        '- Todas las horas de inicio/fin en schedule u horas preferidas deben ser minutos enteros desde las 00:00 (medianoche).\n'
+        "- Sé extremadamente preciso con am/pm:\n"
+        "  * Las horas AM van desde las 12:00 am (0 minutos) hasta las 11:59 am (719 minutos).\n"
+        "    Ej: 12 am (medianoche) = 0, 1 am (o '1 am', '1am') = 60, 7 am = 420, 11 am = 660.\n"
+        "  * Las horas PM van desde las 12:00 pm (720 minutos) hasta las 11:59 pm (1439 minutos).\n"
+        "    Para horas PM de 1 a 11, DEBES sumar 12 horas (720 minutos):\n"
+        "    Ej: 12 pm (mediodía) = 720, 1 pm (o '1 pm', '1pm') = 780, 2 pm = 840, 6 pm = 1080, 8 pm = 1200.\n"
+        "    ¡NUNCA confundas 1 pm (780 min) con 1 am (60 min) ni con otra hora!\n"
+        "  * Si dice 'a la 1' y el contexto es de tarde/noche, asume 1 pm (780 min).\n\n"
         "Regla de delegación del horario:\n"
         '- Si el usuario te dice "elige tú", "tú decides", "cuando sea", "lo que sea",\n'
         '  "como sea", "lo que mejor convenga" o similar, está delegando en ti la\n'
@@ -264,12 +274,13 @@ class LLMParserService:
 
     # ── Conversational NL parsing ──────────────────────────────────
 
-    def _build_conversational_prompt(self, text: str, history: list[dict]) -> str:
+    def _build_conversational_prompt(self, text: str, history: list[dict], agenda_context: str | None = None) -> str:
         """Build a prompt for conversational NL parsing with accumulated context.
 
         Args:
             text: The current user message.
             history: List of prior exchanges as {role, content} dicts.
+            agenda_context: Optional string containing current scheduled activities.
 
         Returns:
             A formatted prompt string for the LLM.
@@ -452,6 +463,8 @@ Máximo 4 intercambios (ida+vuelta). Si llegas a 4, produce un result con lo que
 Reglas especiales para el contexto y saludos:
 1. Si el usuario te saluda de forma casual (ej. "hola", "buenas") o hace charla libre, responde usando response_type 'chat' con un mensaje amigable en 'ai_message'.
 2. Debes recordar y acumular la información de toda la conversación en el historial. Si el usuario te dio el nombre de la actividad o los días en un mensaje anterior y ahora te da otro detalle (como las horas), el JSON resultante de tipo "result" debe incluir el nombre ("name") y demás campos que dio antes. No ignores ni olvides la información provista en los turnos anteriores.
+3. Si se proporciona una sección de 'Actividades ya programadas en la agenda del usuario', utilízala como referencia de lo que el usuario ya tiene agendado. Si pide modificar o referenciar alguna de estas actividades existentes, debes mantener sus atributos previos (como categoría, tipo de horario y detalles temporales) a menos que el usuario indique explícitamente cambiarlos.
+4. Prioridad absoluta del último mensaje: Lo último expresado por el usuario en el historial o en su mensaje actual manda de manera OBLIGATORIA. Si hay cualquier contradicción entre mensajes anteriores o el contexto de la agenda y el último mensaje, debes obedecer ciegamente la instrucción o corrección más reciente del usuario.
 
 Reglas especiales para el tiempo y la duración:
 1. Si el usuario especifica un rango de hora específico (ej. "de 7 am a 10 am" o "de 18 a 20"), la duración se infiere automáticamente a partir de la diferencia (ej. 3 horas o 2 horas). NO debes considerarla como faltante ni preguntar por ella; la actividad es fija (`is_fixed: true`) y se guardan las horas de inicio y fin exactas en el `schedule`.
@@ -460,6 +473,12 @@ Reglas especiales para el tiempo y la duración:
 4. Si el usuario realiza una corrección (ej. cambia la hora o el día), debes actualizar los campos correspondientes en el JSON resultante. Nunca mantengas los valores antiguos si el usuario explícitamente pidió cambiarlos en su último mensaje.
 5. Si el usuario corrige la hora de inicio pero no especifica la duración (ej. "cambialo a las 11 am"), y en el historial se puede deducir la duración previa (ej. de 7 a 10 am = 3 horas), mantén esa duración previa y calcula la nueva hora de fin basándote en ella (de 11 am a 2 pm). No vuelvas a preguntar por la duración si ya estaba establecida.
 6. Si el usuario delega el horario con cualquier frase de delegación de horario (incluso si no está en una lista cerrada, ej. "tú decide", "elige tú", "tú decides", "cuando sea", "lo que sea", "como sea", "cuando puedas", "lo que mejor convenga", "cualquier hora", "cuando sea mejor", etc.), debes marcar la actividad con `is_anchor: true`, `is_fixed: false`, y establecer `start_time: 0` y `end_time: 0` en el schedule para los días correspondientes. No inventes un horario por defecto.
+7. Reglas de conversión de horas AM/PM a minutos desde la medianoche:
+   - Todas las horas de inicio/fin en schedule u horas preferidas deben ser minutos enteros desde las 00:00 (medianoche).
+   - Sé extremadamente preciso con am/pm:
+     * Las horas AM van desde las 12:00 am (0 minutos) hasta las 11:59 am (719 minutos). Ej: 12 am (medianoche) = 0, 1 am (o '1 am', '1am') = 60, 7 am = 420, 11 am = 660.
+     * Las horas PM van desde las 12:00 pm (720 minutos) hasta las 11:59 pm (1439 minutos). Para horas PM de 1 a 11, DEBES sumar 12 horas (720 minutos): Ej: 12 pm (mediodía) = 720, 1 pm (o '1 pm', '1pm') = 780, 2 pm = 840, 6 pm = 1080, 8 pm = 1200. ¡NUNCA confundas 1 pm (780 min) con 1 am (60 min) ni con otra hora!
+     * Si dice 'a la 1' y el contexto es de tarde/noche, asume 1 pm (780 min).
 
 Regla de anti-alucinación:
 1. Si un campo (como ubicación, prioridad, dificultad, tipo de actividad, etc.) no se menciona en la conversación y no se puede deducir, déjalo en null en el JSON de salida. No asumas ni inventes valores por defecto para campos no provistos.
@@ -498,21 +517,28 @@ Si response_type es "result":
   "location": str | null,
   "confidence": float,
   "missing_fields": []
-}}
+}}"""
 
----
+        prompt_parts = [prompt]
+        if agenda_context:
+            prompt_parts.append(f"""---
+Actividades ya programadas en la agenda del usuario (para referencia o modificación):
+{agenda_context}""")
+
+        prompt_parts.append(f"""---
 Historial de la conversación actual:
 {history_text}
-Usuario: {text}"""
+Usuario: {text}""")
 
-        return prompt
+        return "\n\n".join(prompt_parts)
 
-    def parse_conversational(self, text: str, history: list[dict]) -> QuestionResponse | ChatResponse | ResultResponse:
+    def parse_conversational(self, text: str, history: list[dict], agenda_context: str | None = None) -> QuestionResponse | ChatResponse | ResultResponse:
         """Parse an activity description conversationally, accumulating context.
 
         Args:
             text: The current user message.
             history: List of prior exchanges as {role, content} dicts.
+            agenda_context: Optional string containing current scheduled activities.
 
         Returns:
             A QuestionResponse if more info is needed, a ChatResponse for casual chat,
@@ -531,7 +557,7 @@ Usuario: {text}"""
                 assistant_count += 1
 
         # 3. Build prompt
-        prompt = self._build_conversational_prompt(text, history)
+        prompt = self._build_conversational_prompt(text, history, agenda_context)
 
         # 4. Define the response model for the LLM
         class ConversationalLLMResponse(BaseModel):
