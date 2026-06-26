@@ -42,6 +42,8 @@ class TestParseNLConversation:
         mock.hora_preferida_inicio = None
         mock.hora_preferida_fin = None
         mock.location = None
+        mock.travel_to = None
+        mock.travel_from = None
         mock.confidence = 0.0
         return mock
 
@@ -51,6 +53,8 @@ class TestParseNLConversation:
         activity_type="tarea",
         schedule_data=None,
         confidence=0.95,
+        travel_to=None,
+        travel_from=None,
     ):
         """Build a mock object that looks like a ConversationalLLMResponse with type result."""
         mock = MagicMock()
@@ -71,6 +75,8 @@ class TestParseNLConversation:
         mock.hora_preferida_inicio = None
         mock.hora_preferida_fin = None
         mock.location = None
+        mock.travel_to = travel_to
+        mock.travel_from = travel_from
         mock.confidence = confidence
         return mock
 
@@ -379,5 +385,23 @@ class TestParseNLConversation:
 
         assert "Actividades ya programadas en la agenda del usuario" in prompt
         assert agenda_ctx in prompt
+
+    def test_result_response_includes_travel_time(self):
+        """The parse_conversational result should correctly map travel_to and travel_from."""
+        from domain.services.llm_parser_service import LLMParserService
+
+        mock_llm = MagicMock()
+        mock_llm.generate.return_value = self._mock_result_response(
+            travel_to=15,
+            travel_from=10,
+        )
+
+        service = LLMParserService(mock_llm)
+        result = service.parse_conversational("clase los lunes", [])
+
+        assert isinstance(result, ResultResponse)
+        assert result.travel_to == 15
+        assert result.travel_from == 10
+
 
 

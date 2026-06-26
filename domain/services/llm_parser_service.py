@@ -448,6 +448,58 @@ Respuesta: {
   "location": null,
   "confidence": 0.85,
   "missing_fields": ["start_time", "end_time"]
+}
+
+Ejemplo 10 (con ubicación pero sin tiempo de traslado → pregunta por traslado):
+Usuario: Clase de álgebra los martes de 10:00 a 12:00 en la Facultad
+Respuesta: {
+  "response_type": "question",
+  "ai_message": "¿Tienes algún tiempo de traslado para llegar a la Facultad?",
+  "missing_fields": ["travel_to"]
+}
+
+Ejemplo 11 (respuesta a traslado → resultado):
+Historial de la conversación:
+Usuario: Clase de álgebra los martes de 10:00 a 12:00 en la Facultad
+Asistente: ¿Tienes algún tiempo de traslado para llegar a la Facultad?
+Usuario: Sí, 20 minutos de viaje
+Respuesta: {
+  "response_type": "result",
+  "name": "Clase de álgebra",
+  "activity_type": "clase",
+  "is_fixed": true,
+  "is_anchor": false,
+  "schedule": [
+    {"day": "martes", "start_time": 600, "end_time": 720}
+  ],
+  "duracion_minutos": 120,
+  "location": "Facultad",
+  "travel_to": 20,
+  "travel_from": null,
+  "confidence": 0.95,
+  "missing_fields": []
+}
+
+Ejemplo 12 (respuesta no a traslado → resultado con 0):
+Historial de la conversación:
+Usuario: Clase de álgebra los martes de 10:00 a 12:00 en la Facultad
+Asistente: ¿Tienes algún tiempo de traslado para llegar a la Facultad?
+Usuario: No, ninguno
+Respuesta: {
+  "response_type": "result",
+  "name": "Clase de álgebra",
+  "activity_type": "clase",
+  "is_fixed": true,
+  "is_anchor": false,
+  "schedule": [
+    {"day": "martes", "start_time": 600, "end_time": 720}
+  ],
+  "duracion_minutos": 120,
+  "location": "Facultad",
+  "travel_to": 0,
+  "travel_from": null,
+  "confidence": 0.95,
+  "missing_fields": []
 }"""
 
 
@@ -479,6 +531,12 @@ Reglas especiales para el tiempo y la duración:
      * Las horas AM van desde las 12:00 am (0 minutos) hasta las 11:59 am (719 minutos). Ej: 12 am (medianoche) = 0, 1 am (o '1 am', '1am') = 60, 7 am = 420, 11 am = 660.
      * Las horas PM van desde las 12:00 pm (720 minutos) hasta las 11:59 pm (1439 minutos). Para horas PM de 1 a 11, DEBES sumar 12 horas (720 minutos): Ej: 12 pm (mediodía) = 720, 1 pm (o '1 pm', '1pm') = 780, 2 pm = 840, 6 pm = 1080, 8 pm = 1200. ¡NUNCA confundas 1 pm (780 min) con 1 am (60 min) ni con otra hora!
      * Si dice 'a la 1' y el contexto es de tarde/noche, asume 1 pm (780 min).
+8. Regla para tiempo de traslado (travel_to):
+     - El campo `travel_to` representa el tiempo de traslado (en minutos) necesario para ir hacia la ubicación de la actividad.
+     - Si la actividad tiene una ubicación (ej: "Facultad", "gimnasio", "polideportivo", etc.) y vas a producir un resultado final de tipo "result", DEBES verificar si el usuario ha especificado un tiempo de traslado para llegar.
+     - Si el usuario NO ha mencionado si hay tiempo de traslado o de cuánto es, debes considerar que falta confirmación y preguntar explícitamente en 'ai_message' (ej: "¿Tienes algún tiempo de traslado para llegar?", "¿Cuánto tardas en llegar a la Facultad?"). En este caso, agrega `"travel_to"` a `missing_fields` y responde con response_type 'question'.
+     - Si el usuario responde que no tiene traslado o es de 0 minutos (ej: "no", "ninguno", "no tengo traslado", "0 min", "estoy ahí mismo"), establece `travel_to` en 0 en la respuesta.
+     - Si el usuario indica un tiempo (ej: "tardo 15 min en llegar", "15 minutos de viaje"), establece `travel_to` en el número entero de minutos (ej. 15).
 
 Regla de anti-alucinación:
 1. Si un campo (como ubicación, prioridad, dificultad, tipo de actividad, etc.) no se menciona en la conversación y no se puede deducir, déjalo en null en el JSON de salida. No asumas ni inventes valores por defecto para campos no provistos.
@@ -575,6 +633,8 @@ Usuario: {text}""")
             hora_preferida_inicio: int | None = None
             hora_preferida_fin: int | None = None
             location: str | None = None
+            travel_to: int | None = None
+            travel_from: int | None = None
             confidence: float = 0.0
 
         # 5. Call LLM
@@ -697,6 +757,8 @@ Usuario: {text}""")
                 hora_preferida_inicio=pref_inicio,
                 hora_preferida_fin=pref_fin,
                 location=llm_response.location,
+                travel_to=llm_response.travel_to,
+                travel_from=llm_response.travel_from,
                 confidence=llm_response.confidence,
                 missing_fields=llm_response.missing_fields or [] if (assistant_count >= 4 or forced_result) else [],
             )

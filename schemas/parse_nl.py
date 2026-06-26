@@ -73,6 +73,8 @@ class ParseNLResponse(BaseModel):
         ge=0,
     )
     location: str | None = None
+    travel_to: int | None = Field(default=None, description="Tiempo de traslado de ida en minutos", ge=0)
+    travel_from: int | None = Field(default=None, description="Tiempo de traslado de vuelta en minutos", ge=0)
     confidence: float = Field(
         default=0.0,
         ge=0.0,
