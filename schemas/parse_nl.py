@@ -98,6 +98,7 @@ class ParseNLConversationRequest(BaseModel):
     text: str = Field(min_length=1, description="Natural language activity description")
     history: list[ConversationMessage] = []
     agenda_context: str | None = Field(default=None, description="Contexto de las actividades existentes del usuario en la agenda")
+    current_day: str | None = Field(default=None, description="Día actual de la semana en español, ej: 'Lunes'")
 
 
 

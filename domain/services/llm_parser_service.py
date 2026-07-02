@@ -274,13 +274,14 @@ class LLMParserService:
 
     # ── Conversational NL parsing ──────────────────────────────────
 
-    def _build_conversational_prompt(self, text: str, history: list[dict], agenda_context: str | None = None) -> str:
+    def _build_conversational_prompt(self, text: str, history: list[dict], agenda_context: str | None = None, current_day: str | None = None) -> str:
         """Build a prompt for conversational NL parsing with accumulated context.
 
         Args:
             text: The current user message.
             history: List of prior exchanges as {role, content} dicts.
             agenda_context: Optional string containing current scheduled activities.
+            current_day: Optional string with current day of the week (e.g. 'Martes').
 
         Returns:
             A formatted prompt string for the LLM.
@@ -506,11 +507,28 @@ Respuesta: {
         prompt = f"""Eres un asistente que ayuda a crear actividades académicas para un planificador horario.
 Decide si la información del usuario es SUFICIENTE para producir una actividad estructurada, o si necesitas preguntar algo más, o si es charla libre / fuera de tema.
 Si la consulta del usuario es charla libre, saludo casual, despedida o temas fuera del contexto de agregar actividades, responde con response_type 'chat' y una respuesta amigable.
-Si falta información CRÍTICA (nombre, días, duración), responde con response_type 'question' y una pregunta corta y natural.
+Si falta información CRÍTICA según el tipo de actividad (ver reglas de atributos requeridos abajo), responde con response_type 'question' y una pregunta corta y natural.
 Si hay suficiente información, responde con response_type 'result' y el JSON completo.
 Haz preguntas cortas, naturales, como si hablaras con un amigo, en español neutro (sin voseo argentino).
 Una pregunta por vez. No abrumes al usuario.
 Máximo 4 intercambios (ida+vuelta). Si llegas a 4, produce un result con lo que tengas.
+
+Día de la semana actual de referencia (ÚSALO OBLIGATORIAMENTE PARA CALCULAR DÍAS RELATIVOS COMO 'mañana', 'pasado mañana', 'este viernes', 'el próximo lunes', etc.): {current_day or "(no especificado)"}
+
+Reglas de atributos requeridos según el tipo de actividad (clase, trabajo, tarea):
+1. Si el tipo de actividad ("activity_type") no ha sido especificado por el usuario ni se puede deducir claramente del contexto, responde con response_type 'question' preguntándole al usuario qué tipo de actividad desea agregar (si es una clase, un trabajo o una tarea/estudio). Agrega "activity_type" en `missing_fields`.
+2. Si el tipo de actividad es "clase" (Class):
+   - Atributos críticos y obligatorios: nombre ("name") y horario/días ("schedule" con horas de inicio y fin específicas).
+   - Atributos condicionales/opcionales: ubicación ("location") y tiempo de traslado ("travel_to"). Si no se han especificado, pregunta por la ubicación, y luego por el traslado.
+   - Atributos NO requeridos: dificultad ("difficulty") y prioridad ("priority"). NUNCA preguntes por la dificultad o prioridad si es una clase. Déjalos en null en el JSON de salida y no los incluyas en `missing_fields`.
+3. Si el tipo de actividad es "trabajo" (Work):
+   - Atributos críticos y obligatorios: nombre ("name") y horario/días ("schedule").
+   - Atributos condicionales/opcionales: ubicación ("location") y tiempo de traslado ("travel_to"). Si no se han especificado, pregunta por la ubicación, y luego por el traslado.
+   - Atributos NO requeridos: dificultad ("difficulty") y prioridad ("priority"). NUNCA preguntes por la dificultad o prioridad si es un trabajo. Déjalos en null en el JSON de salida y no los incluyas en `missing_fields`.
+4. Si el tipo de actividad es "tarea" (Task / Estudio):
+   - Atributos críticos y obligatorios: nombre ("name"), duración estimada ("duracion_minutos"), días en que se realizará ("schedule" con start_time=0 y end_time=0), dificultad ("difficulty": "baja" | "media" | "alta") y prioridad ("priority": "baja" | "media" | "alta").
+   - Si falta cualquiera de estos atributos críticos, debes preguntarlos uno por uno (ej: pidiendo que elija la dificultad o la prioridad). Agrégalos a `missing_fields`.
+   - Atributos NO requeridos: ubicación ("location") y traslado ("travel_to"). NUNCA preguntes por la ubicación o traslado para una tarea, a menos que el usuario los mencione voluntariamente. Déjalos en null si no son provistos.
 
 Reglas especiales para el contexto y saludos:
 1. Si el usuario te saluda de forma casual (ej. "hola", "buenas") o hace charla libre, responde usando response_type 'chat' con un mensaje amigable en 'ai_message'.
@@ -535,8 +553,19 @@ Reglas especiales para el tiempo y la duración:
      - El campo `travel_to` representa el tiempo de traslado (en minutos) necesario para ir hacia la ubicación de la actividad.
      - Si la actividad tiene una ubicación (ej: "Facultad", "gimnasio", "polideportivo", etc.) y vas a producir un resultado final de tipo "result", DEBES verificar si el usuario ha especificado un tiempo de traslado para llegar.
      - Si el usuario NO ha mencionado si hay tiempo de traslado o de cuánto es, debes considerar que falta confirmación y preguntar explícitamente en 'ai_message' (ej: "¿Tienes algún tiempo de traslado para llegar?", "¿Cuánto tardas en llegar a la Facultad?"). En este caso, agrega `"travel_to"` a `missing_fields` y responde con response_type 'question'.
-     - Si el usuario responde que no tiene traslado o es de 0 minutos (ej: "no", "ninguno", "no tengo traslado", "0 min", "estoy ahí mismo"), establece `travel_to` en 0 en la respuesta.
+     - Si el usuario responde que no tiene traslado o es de 0 minutos (ej: "no", "ninguno", "no tengo traslado", "0 min", "estoy ahí mismo"), establece `travel_to` in 0 en la respuesta.
      - Si el usuario indica un tiempo (ej: "tardo 15 min en llegar", "15 minutos de viaje"), establece `travel_to` en el número entero de minutos (ej. 15).
+9. Interpretación de coloquialismos temporales del estudiante:
+     - "toda la tarde" -> duración aproximada de 180 a 240 minutos (rango preferido de hora_preferida_inicio = 840 [14:00] y hora_preferida_fin = 1200 [20:00]).
+     - "toda la mañana" -> rango preferido de 480 [08:00] a 720 [12:00].
+     - "al mediodía" -> rango preferido de 720 [12:00] a 840 [14:00].
+     - "a la noche" -> rango preferido de 1200 [20:00] a 1439 [23:59].
+     - "un rato" o "un ratito" -> duración sugerida de 60 minutos.
+10. Confirmación Obligatoria de Propuestas de Cambio / Superposiciones (NO decidir a ciegas):
+     - Si el usuario reporta un imprevisto, colisión u horario en conflicto, y tú deseas proponer un horario alternativo, NO debes devolver un resultado final `response_type: "result"` de forma automática e inmediata.
+     - En su lugar, debes proponer el cambio amigablemente al usuario respondiendo con `response_type: "question"` (ej: "El sábado a esa hora se superpone con tu trabajo. ¿Te parece bien cambiarlo a las 11:00 am?"). Debes esperar a que el usuario confirme explícitamente (ej: "sí", "está bien", "dale", "bueno") en el siguiente turno del historial antes de emitir la respuesta final de tipo "result".
+11. Peticiones de carga de múltiples actividades en un solo turno:
+     - Si el usuario ingresa los datos de más de una actividad distinta a la vez, procesa únicamente la primera actividad y dile en el 'ai_message' que la primera ha sido agregada, y que al confirmar esa, podrá ingresar los detalles de la siguiente. No mezcles ni fusiones actividades independientes.
 
 Regla de anti-alucinación:
 1. Si un campo (como ubicación, prioridad, dificultad, tipo de actividad, etc.) no se menciona en la conversación y no se puede deducir, déjalo en null en el JSON de salida. No asumas ni inventes valores por defecto para campos no provistos.
@@ -590,13 +619,14 @@ Usuario: {text}""")
 
         return "\n\n".join(prompt_parts)
 
-    def parse_conversational(self, text: str, history: list[dict], agenda_context: str | None = None) -> QuestionResponse | ChatResponse | ResultResponse:
+    def parse_conversational(self, text: str, history: list[dict], agenda_context: str | None = None, current_day: str | None = None) -> QuestionResponse | ChatResponse | ResultResponse:
         """Parse an activity description conversationally, accumulating context.
 
         Args:
             text: The current user message.
             history: List of prior exchanges as {role, content} dicts.
             agenda_context: Optional string containing current scheduled activities.
+            current_day: Optional string with current day of the week (e.g. 'Martes').
 
         Returns:
             A QuestionResponse if more info is needed, a ChatResponse for casual chat,
@@ -615,7 +645,7 @@ Usuario: {text}""")
                 assistant_count += 1
 
         # 3. Build prompt
-        prompt = self._build_conversational_prompt(text, history, agenda_context)
+        prompt = self._build_conversational_prompt(text, history, agenda_context, current_day)
 
         # 4. Define the response model for the LLM
         class ConversationalLLMResponse(BaseModel):

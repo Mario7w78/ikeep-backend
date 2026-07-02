@@ -403,5 +403,22 @@ class TestParseNLConversation:
         assert result.travel_to == 15
         assert result.travel_from == 10
 
+    def test_conversational_prompt_includes_current_day(self):
+        """The conversational prompt should include current day if provided."""
+        from domain.services.llm_parser_service import LLMParserService
+
+        mock_llm = MagicMock()
+        mock_llm.generate.return_value = self._mock_question_response()
+
+        service = LLMParserService(mock_llm)
+        service.parse_conversational("nueva actividad", [], current_day="Viernes")
+
+        call_args = mock_llm.generate.call_args
+        prompt = call_args[0][0]
+
+        assert "Día de la semana actual de referencia" in prompt
+        assert "Viernes" in prompt
+
+
 
 
