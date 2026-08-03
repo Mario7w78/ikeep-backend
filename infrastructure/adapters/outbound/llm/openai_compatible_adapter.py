@@ -17,6 +17,9 @@ from infrastructure.adapters.inbound.api.middleware import LLMServiceException
 
 logger = logging.getLogger(__name__)
 
+REQUEST_TIMEOUT_SECONDS = 25.0
+MAX_OUTPUT_TOKENS = 1500
+
 
 class OpenAICompatibleAdapter(LLMPort):
     """Adapter for any OpenAI-compatible LLM inference API.
@@ -33,7 +36,14 @@ class OpenAICompatibleAdapter(LLMPort):
         base_url: str,
         default_model: str,
     ):
-        self._client = OpenAI(api_key=api_key, base_url=base_url)
+        # timeout: a hung provider must fail fast so the failover chain can move
+        # on. max_retries=0 because retries are handled by FailoverAdapter.
+        self._client = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+            max_retries=0,
+        )
         self._default_model = default_model
 
     def generate(self, prompt: str, response_model: type[BaseModel]) -> BaseModel:
@@ -71,6 +81,7 @@ class OpenAICompatibleAdapter(LLMPort):
                 ],
                 response_format={"type": "json_object"},
                 temperature=0.1,
+                max_tokens=MAX_OUTPUT_TOKENS,
             )
 
             raw = response.choices[0].message.content

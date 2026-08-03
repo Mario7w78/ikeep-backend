@@ -59,7 +59,7 @@ def parse_actividad_nl(
 
 @router.post("/parse-nl-conversation", response_model=ParseNLConversationResponse)
 @inject
-async def parse_actividad_nl_conversation(
+def parse_actividad_nl_conversation(
     request: ParseNLConversationRequest,
     parser: LLMParserService = Depends(Provide[ApplicationContainer.llm_parser_service]),
 ):

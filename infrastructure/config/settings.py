@@ -10,6 +10,16 @@ class Settings(BaseSettings):
     MISTRAL_API_KEY: str = ""
     SCHEDULER_TIMEOUT: int = 5
 
+    LOG_LEVEL: str = "INFO"
+    # Comma-separated list of allowed origins, or "*" for any.
+    CORS_ORIGINS: str = "*"
+    # Requests per minute per IP on the /parse-nl* endpoints. 0 disables.
+    RATE_LIMIT_PER_MINUTE: int = 20
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
     class Config:
         env_file = ".env"
 

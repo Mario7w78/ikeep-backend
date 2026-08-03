@@ -16,9 +16,17 @@ from infrastructure.adapters.outbound.llm.openai_compatible_adapter import (
     OpenAICompatibleAdapter,
 )
 
+# The adapter binds OpenAI at import time (`from openai import OpenAI`), so the
+# patch has to target the adapter module's name, not `openai.OpenAI`. Patching
+# the latter silently does nothing and the real client gets built.
+_PATCH_PATH = (
+    "infrastructure.adapters.outbound.llm"
+    ".openai_compatible_adapter.OpenAI"
+)
+
 
 class TestContainerWiring:
-    @patch("openai.OpenAI")
+    @patch(_PATCH_PATH)
     def test_container_resolves_llm_parser_service(self, MockOpenAI):
         """The container should resolve LLMParserService."""
         from infrastructure.config.container import ApplicationContainer
@@ -31,7 +39,7 @@ class TestContainerWiring:
         parser = container.llm_parser_service()
         assert isinstance(parser, LLMParserService)
 
-    @patch("openai.OpenAI")
+    @patch(_PATCH_PATH)
     def test_container_resolves_failover_adapter(self, MockOpenAI):
         """The container should resolve a FailoverAdapter with 3 providers."""
         from infrastructure.config.container import ApplicationContainer

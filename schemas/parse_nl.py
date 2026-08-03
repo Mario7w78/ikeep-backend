@@ -12,7 +12,11 @@ from pydantic import BaseModel, Field, field_validator
 class ParseNLRequest(BaseModel):
     """Request body for POST /api/v1/horarios/parse-nl."""
 
-    text: str = Field(min_length=1, description="Natural language activity description")
+    text: str = Field(
+        min_length=1,
+        max_length=1000,
+        description="Natural language activity description",
+    )
 
 
 class ParsedSchedule(BaseModel):
@@ -88,16 +92,20 @@ class ConversationMessage(BaseModel):
     """A single message in the conversation history."""
 
     role: Literal["user", "assistant"]
-    content: str
+    content: str = Field(max_length=2000)
     type: Literal["question", "result", "chat"] | None = None
 
 
 class ParseNLConversationRequest(BaseModel):
     """Request body for POST /api/v1/horarios/parse-nl-conversation."""
 
-    text: str = Field(min_length=1, description="Natural language activity description")
-    history: list[ConversationMessage] = []
-    agenda_context: str | None = Field(default=None, description="Contexto de las actividades existentes del usuario en la agenda")
+    text: str = Field(
+        min_length=1,
+        max_length=1000,
+        description="Natural language activity description",
+    )
+    history: list[ConversationMessage] = Field(default=[], max_length=40)
+    agenda_context: str | None = Field(default=None, max_length=8000, description="Contexto de las actividades existentes del usuario en la agenda")
     current_day: str | None = Field(default=None, description="Día actual de la semana en español, ej: 'Lunes'")
 
 

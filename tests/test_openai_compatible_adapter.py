@@ -10,6 +10,9 @@ import pytest
 from pydantic import BaseModel
 
 from infrastructure.adapters.inbound.api.middleware import LLMServiceException
+from infrastructure.adapters.outbound.llm.openai_compatible_adapter import (
+    REQUEST_TIMEOUT_SECONDS,
+)
 
 
 class SampleResponse(BaseModel):
@@ -40,6 +43,8 @@ class TestOpenAICompatibleAdapter:
         MockOpenAI.assert_called_once_with(
             api_key="test-key",
             base_url="https://api.test.com/v1",
+            timeout=REQUEST_TIMEOUT_SECONDS,
+            max_retries=0,
         )
 
     @patch(_PATCH_PATH)

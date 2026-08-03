@@ -1,7 +1,10 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+import logging
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from infrastructure.config.container import ApplicationContainer
+from infrastructure.config.settings import get_settings
 from infrastructure.adapters.inbound.api.v1.health_router import (
     router as health_router,
 )
@@ -14,23 +17,44 @@ from infrastructure.adapters.inbound.api.v1.schedule_router import (
 from infrastructure.adapters.inbound.api.v1.suggest_router import (
     router as suggest_router,
 )
-from infrastructure.adapters.inbound.api.middleware import (
-    ErrorHandlerMiddleware,
-    DomainException,
-    SolverException,
-)
+from infrastructure.adapters.inbound.api.middleware import ErrorHandlerMiddleware
+from infrastructure.adapters.inbound.api.rate_limit import RateLimitMiddleware
 
 
 def create_app() -> FastAPI:
+    settings = get_settings()
     container = ApplicationContainer()
+
+    # Without this the logger.info/warning calls across the codebase are
+    # dropped by Python's default config and we lose the failover and
+    # circuit-breaker traces entirely.
+    logging.basicConfig(
+        level=settings.LOG_LEVEL.upper(),
+        format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+    )
 
     app = FastAPI(title="IKEEP Backend", version="1.0.0")
 
     # Wire DI container
     container.wire()
 
-    # Global error middleware (outermost layer)
+    # Middleware runs outermost-last: CORS wraps the limiter, which wraps the
+    # error handler, so even a 429 or a 500 carries CORS headers.
     app.add_middleware(ErrorHandlerMiddleware)
+    app.add_middleware(
+        RateLimitMiddleware,
+        requests_per_minute=settings.RATE_LIMIT_PER_MINUTE,
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origin_list,
+        # Auth is Bearer-token based, not cookie based, so credentialed
+        # requests are unnecessary — and "*" + credentials is rejected
+        # by browsers anyway.
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     # Routers
     app.include_router(horarios_router)
