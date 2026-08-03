@@ -16,6 +16,19 @@ class Settings(BaseSettings):
     # Requests per minute per IP on the /parse-nl* endpoints. 0 disables.
     RATE_LIMIT_PER_MINUTE: int = 20
 
+    # Supabase. The backend reaches the database through PostgREST rather than
+    # a direct Postgres connection: the container sleeps on the free tier, and
+    # a connection pool does not survive that cycle cleanly. Going through the
+    # REST API also keeps row-level security in force, since every query runs
+    # with the caller's own JWT instead of a privileged service role.
+    SUPABASE_URL: str = ""
+    # The client-safe key ("publishable" in newer projects, "anon" in older
+    # ones). It grants nothing on its own — RLS is what scopes the data.
+    SUPABASE_ANON_KEY: str = ""
+    # Used to verify incoming JWT signatures locally, so a forged or expired
+    # token is rejected before it ever costs a network round trip.
+    SUPABASE_JWT_SECRET: str = ""
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
