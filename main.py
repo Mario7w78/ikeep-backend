@@ -17,6 +17,9 @@ from infrastructure.adapters.inbound.api.v1.schedule_router import (
 from infrastructure.adapters.inbound.api.v1.suggest_router import (
     router as suggest_router,
 )
+from infrastructure.adapters.inbound.api.v1.activities_router import (
+    router as activities_router,
+)
 from infrastructure.adapters.inbound.api.middleware import ErrorHandlerMiddleware
 from infrastructure.adapters.inbound.api.rate_limit import RateLimitMiddleware
 from infrastructure.adapters.outbound.supabase.client import anon_client, verify_schema
@@ -88,6 +91,7 @@ def create_app() -> FastAPI:
     app.include_router(horarios_router)
     app.include_router(replanificar_router)
     app.include_router(suggest_router)
+    app.include_router(activities_router)
     app.include_router(health_router)
 
     _check_schema_on_startup()
