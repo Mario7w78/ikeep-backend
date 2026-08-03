@@ -25,9 +25,14 @@ class Settings(BaseSettings):
     # The client-safe key ("publishable" in newer projects, "anon" in older
     # ones). It grants nothing on its own — RLS is what scopes the data.
     SUPABASE_ANON_KEY: str = ""
-    # Used to verify incoming JWT signatures locally, so a forged or expired
-    # token is rejected before it ever costs a network round trip.
+    # Only used by projects that still sign with the legacy HS256 shared
+    # secret. Newer ones sign asymmetrically and are verified through JWKS,
+    # which needs no secret at all.
     SUPABASE_JWT_SECRET: str = ""
+    # Checking the schema costs one request per table against the live
+    # project. Wanted in production, unwanted in tests, which must not depend
+    # on the network.
+    VERIFY_SCHEMA_ON_STARTUP: bool = True
 
     @property
     def cors_origin_list(self) -> list[str]:

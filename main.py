@@ -19,6 +19,34 @@ from infrastructure.adapters.inbound.api.v1.suggest_router import (
 )
 from infrastructure.adapters.inbound.api.middleware import ErrorHandlerMiddleware
 from infrastructure.adapters.inbound.api.rate_limit import RateLimitMiddleware
+from infrastructure.adapters.outbound.supabase.client import anon_client, verify_schema
+
+
+logger = logging.getLogger(__name__)
+
+
+def _check_schema_on_startup() -> None:
+    """Report a broken schema at boot instead of at request time.
+
+    A missing table is a deployment mistake and must be loud. An unreachable
+    Supabase is not: the solver endpoints do not touch the database, so a
+    transient outage should not keep the whole service from starting.
+    """
+    if not get_settings().VERIFY_SCHEMA_ON_STARTUP:
+        return
+
+    try:
+        client = anon_client()
+    except RuntimeError as exc:
+        logger.warning("Sin acceso a Supabase, no se verifica el esquema: %s", exc)
+        return
+
+    try:
+        verify_schema(client)
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        logger.warning("No se pudo verificar el esquema ahora: %s", exc)
 
 
 def create_app() -> FastAPI:
@@ -61,6 +89,8 @@ def create_app() -> FastAPI:
     app.include_router(replanificar_router)
     app.include_router(suggest_router)
     app.include_router(health_router)
+
+    _check_schema_on_startup()
 
     # Store container reference for testing
     app.container = container
