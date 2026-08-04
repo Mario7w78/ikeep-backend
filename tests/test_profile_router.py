@@ -100,6 +100,19 @@ class TestPerfil:
         assert respuesta.status_code == 422
         perfiles.save.assert_not_called()
 
+    @pytest.mark.parametrize("nivel", [1, 2, 3, 4, 5])
+    def test_acepta_toda_la_escala_del_perfil(self, client, perfiles, nivel):
+        """El perfil usa 1-5, no la escala 1-3 de los reportes diarios.
+
+        Ser mas estricto que la entidad del cliente daria un 422 sobre un
+        valor valido, y desde la app se veria como un error inexplicable.
+        """
+        perfiles.save.return_value = PERFIL_COMPLETO
+
+        respuesta = client.put("/api/v1/perfil", json={"energy_level": nivel})
+
+        assert respuesta.status_code == 200
+
     def test_limpiar_vacia_y_devuelve_incompleto(self, client, perfiles):
         respuesta = client.delete("/api/v1/perfil")
 

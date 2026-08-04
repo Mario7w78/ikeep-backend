@@ -10,8 +10,12 @@ from pydantic import BaseModel, Field
 
 class ProfilePayload(BaseModel):
     username: str | None = Field(default=None, max_length=100)
-    # 1 = baja, 2 = normal, 3 = alta.
-    energy_level: int | None = Field(default=None, ge=1, le=3)
+    # 1 a 5. No confundir con el nivel de un reporte diario de energia, que va
+    # de 1 a 3: son escalas distintas para cosas distintas. La entidad User
+    # del cliente valida este rango, y el backend no debe ser mas estricto que
+    # el dominio al que sirve —seria un 422 sobre un valor perfectamente
+    # valido, y el cliente lo veria como un error inexplicable.
+    energy_level: int | None = Field(default=None, ge=1, le=5)
     wake_up_time: str | None = Field(default=None, max_length=10)
     sleep_time: str | None = Field(default=None, max_length=10)
 
