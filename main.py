@@ -20,6 +20,9 @@ from infrastructure.adapters.inbound.api.v1.suggest_router import (
 from infrastructure.adapters.inbound.api.v1.activities_router import (
     router as activities_router,
 )
+from infrastructure.adapters.inbound.api.v1.assistant_router import (
+    router as assistant_router,
+)
 from infrastructure.adapters.inbound.api.v1.profile_router import (
     router as profile_router,
 )
@@ -100,6 +103,7 @@ def create_app() -> FastAPI:
     app.include_router(activities_router)
     app.include_router(profile_router)
     app.include_router(stored_schedule_router)
+    app.include_router(assistant_router)
     app.include_router(health_router)
 
     _check_schema_on_startup()

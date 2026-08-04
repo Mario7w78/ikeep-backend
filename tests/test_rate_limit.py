@@ -80,3 +80,38 @@ class TestRateLimit:
         with TestClient(build_app(requests_per_minute=0)) as c:
             for _ in range(10):
                 assert c.post("/api/v1/horarios/parse-nl-conversation").status_code == 200
+
+
+class TestRutasCubiertas:
+    """El asistente tambien gasta cuota, y mas que nadie.
+
+    Un turno corre un bucle que puede llamar al proveedor varias veces, asi
+    que es la ruta mas cara que exponemos. Exigir cuenta encarece abusarla
+    pero no la acota.
+    """
+
+    @pytest.fixture
+    def client_asistente(self):
+        app = FastAPI()
+        app.add_middleware(RateLimitMiddleware, requests_per_minute=2)
+
+        @app.post("/api/v1/asistente/conversar")
+        def conversar():
+            return {"ok": True}
+
+        @app.get("/health")
+        def health():
+            return {"status": "ok"}
+
+        with TestClient(app) as c:
+            yield c
+
+    def test_limita_el_endpoint_del_asistente(self, client_asistente):
+        for _ in range(2):
+            assert client_asistente.post("/api/v1/asistente/conversar").status_code == 200
+
+        assert client_asistente.post("/api/v1/asistente/conversar").status_code == 429
+
+    def test_health_sigue_libre(self, client_asistente):
+        for _ in range(10):
+            assert client_asistente.get("/health").status_code == 200

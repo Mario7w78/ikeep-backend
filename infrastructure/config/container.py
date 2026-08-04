@@ -8,6 +8,12 @@ from domain.services.suggest_service import SuggestService
 from infrastructure.adapters.outbound.llm.openai_compatible_adapter import (
     OpenAICompatibleAdapter,
 )
+from infrastructure.adapters.outbound.llm.openai_tools_adapter import (
+    OpenAIToolsAdapter,
+)
+from infrastructure.adapters.outbound.llm.conversational_failover_adapter import (
+    ConversationalFailoverAdapter,
+)
 from infrastructure.adapters.outbound.llm.circuit_breaker_adapter import (
     CircuitBreakerAdapter,
 )
@@ -28,6 +34,7 @@ class ApplicationContainer(containers.DeclarativeContainer):
             "infrastructure.adapters.inbound.api.v1.schedule_router",
             "infrastructure.adapters.inbound.api.v1.reschedule_router",
             "infrastructure.adapters.inbound.api.v1.suggest_router",
+            "infrastructure.adapters.inbound.api.v1.assistant_router",
         ],
     )
 
@@ -77,6 +84,43 @@ class ApplicationContainer(containers.DeclarativeContainer):
             groq_circuit_breaker,
             cerebras_circuit_breaker,
             mistral_circuit_breaker,
+        ),
+    )
+
+    # ── Conversacional (tool calling) ──
+    # Cadena aparte de la de un disparo: son puertos distintos y los modelos
+    # con mejor tool calling no son necesariamente los mejores extrayendo.
+    groq_tools_adapter = providers.Singleton(
+        OpenAIToolsAdapter,
+        api_key=providers.Callable(lambda s: s.GROQ_API_KEY, settings),
+        base_url="https://api.groq.com/openai/v1",
+        default_model="llama-3.3-70b-versatile",
+    )
+
+    cerebras_tools_adapter = providers.Singleton(
+        OpenAIToolsAdapter,
+        api_key=providers.Callable(lambda s: s.CEREBRAS_API_KEY, settings),
+        base_url="https://api.cerebras.ai/v1",
+        default_model="gpt-oss-120b",
+    )
+
+    mistral_tools_adapter = providers.Singleton(
+        OpenAIToolsAdapter,
+        api_key=providers.Callable(lambda s: s.MISTRAL_API_KEY, settings),
+        base_url="https://api.mistral.ai/v1",
+        default_model="mistral-small-latest",
+    )
+
+    # Sin circuit breaker todavia: el existente envuelve LLMPort, que tiene
+    # otra firma. El orden Groq -> Cerebras -> Mistral esta puesto sin
+    # evidencia; la suite de conversaciones doradas es la que deberia
+    # decidirlo.
+    conversational_adapter = providers.Singleton(
+        ConversationalFailoverAdapter,
+        providers.List(
+            groq_tools_adapter,
+            cerebras_tools_adapter,
+            mistral_tools_adapter,
         ),
     )
 

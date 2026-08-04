@@ -1,9 +1,14 @@
 """In-memory per-IP rate limiting for the LLM-backed endpoints.
 
-Only the /parse-nl* routes are limited: they are unauthenticated and every
-call spends provider quota (Groq/Cerebras/Mistral), so an unthrottled loop
-drains the API keys. The solver endpoints are CPU-bound on our own machine
-and /health must stay open for the warm-up ping and the uptime cron.
+Only the routes that spend provider quota (Groq/Cerebras/Mistral) are limited,
+so an unthrottled loop cannot drain the API keys. The solver endpoints are
+CPU-bound on our own machine and /health must stay open for the warm-up ping
+and the uptime cron.
+
+The assistant endpoint is included even though it requires authentication: a
+single turn runs a loop that may call the provider several times, so it is the
+most expensive route we expose. Needing an account raises the cost of abusing
+it, but does not cap it.
 
 This is a single-process limiter. It is enough while the service runs on a
 single Render instance; a multi-instance deployment needs a shared store.
@@ -20,6 +25,9 @@ from starlette.responses import JSONResponse
 logger = logging.getLogger(__name__)
 
 WINDOW_SECONDS = 60
+# Rutas que gastan cuota de proveedor. Se identifican por fragmento y no por
+# ruta exacta para que sobrevivan a un cambio de prefijo.
+LIMITED_PATH_MARKERS = ("parse-nl", "asistente")
 # Above this many tracked IPs we sweep out the idle ones, so a caller
 # rotating addresses cannot grow the dict without bound.
 MAX_TRACKED_IPS = 10_000
@@ -40,20 +48,28 @@ def _client_ip(request: Request) -> str:
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Sliding-window limiter over the paths in `path_marker`."""
+    """Sliding-window limiter over the paths matching any of `path_markers`."""
 
-    def __init__(self, app, requests_per_minute: int = 20, path_marker: str = "parse-nl"):
+    def __init__(
+        self,
+        app,
+        requests_per_minute: int = 20,
+        path_markers: tuple[str, ...] = LIMITED_PATH_MARKERS,
+    ):
         super().__init__(app)
         self._limit = requests_per_minute
-        self._path_marker = path_marker
+        self._path_markers = path_markers
         self._hits: dict[str, deque[float]] = {}
+
+    def _esta_limitada(self, path: str) -> bool:
+        return any(marcador in path for marcador in self._path_markers)
 
     def _sweep(self, cutoff: float) -> None:
         for ip in [ip for ip, hits in self._hits.items() if not hits or hits[-1] < cutoff]:
             del self._hits[ip]
 
     async def dispatch(self, request: Request, call_next):
-        if self._limit <= 0 or self._path_marker not in request.url.path:
+        if self._limit <= 0 or not self._esta_limitada(request.url.path):
             return await call_next(request)
 
         now = time.monotonic()
