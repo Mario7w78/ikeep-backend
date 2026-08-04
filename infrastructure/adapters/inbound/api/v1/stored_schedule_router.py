@@ -49,6 +49,7 @@ def _horario_a_respuesta(horario: HorarioGuardado) -> ScheduleResponse:
         recomendaciones=horario.recomendaciones,
         tareas_omitidas=horario.tareas_omitidas,
         scheduled_activities=horario.actividades_programadas,
+        created_at=horario.creado_en,
     )
 
 

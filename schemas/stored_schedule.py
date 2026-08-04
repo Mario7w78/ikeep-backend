@@ -24,6 +24,8 @@ class SchedulePayload(BaseModel):
 
 class ScheduleResponse(SchedulePayload):
     user_id: str
+    # Lo asigna Postgres; el cliente no lo manda pero si lo necesita.
+    created_at: str | None = None
 
 
 class EnergyPayload(BaseModel):

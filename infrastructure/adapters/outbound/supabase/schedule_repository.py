@@ -27,6 +27,7 @@ def horario_de_fila(fila: dict[str, Any]) -> HorarioGuardado:
         recomendaciones=fila.get("recomendaciones") or [],
         tareas_omitidas=fila.get("tareas_omitidas") or [],
         actividades_programadas=fila.get("scheduled_activities") or [],
+        creado_en=fila.get("created_at"),
     )
 
 

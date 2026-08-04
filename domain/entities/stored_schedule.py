@@ -22,3 +22,6 @@ class HorarioGuardado:
     recomendaciones: list[Any] = field(default_factory=list)
     tareas_omitidas: list[Any] = field(default_factory=list)
     actividades_programadas: list[Any] = field(default_factory=list)
+    # ISO 8601. Lo pone Postgres al crear la fila; el cliente lo necesita
+    # porque Schedule.createdAt es obligatorio en su entidad.
+    creado_en: str | None = None
