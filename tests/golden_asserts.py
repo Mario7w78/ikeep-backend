@@ -70,3 +70,20 @@ def verificar_conservados(borrador, previo, campos: list[str], donde: str) -> st
                 "Esto es el 'se olvida'."
             )
     return None
+
+
+def verificar_rangos(borrador, rangos: dict, donde: str) -> str | None:
+    """Para valores donde varias lecturas son defendibles.
+
+    "La tarde" puede empezar a las 12 o a las 14 segun a quien le preguntes.
+    Exigir un minuto exacto mediria el criterio del modelo, no si entendio que
+    hablabamos de la tarde.
+    """
+    for campo, (minimo, maximo) in (rangos or {}).items():
+        actual = getattr(borrador, campo)
+        if actual is None or not (minimo <= actual <= maximo):
+            return (
+                f"{donde}: draft.{campo}={actual!r} fuera del rango "
+                f"[{minimo}, {maximo}]"
+            )
+    return None

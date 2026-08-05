@@ -41,7 +41,11 @@ from infrastructure.adapters.outbound.llm.openai_tools_adapter import (  # noqa:
 )
 from infrastructure.config.settings import get_settings  # noqa: E402
 from schemas.assistant import Borrador  # noqa: E402
-from tests.golden_asserts import verificar_conservados, verificar_draft  # noqa: E402
+from tests.golden_asserts import (  # noqa: E402
+    verificar_conservados,
+    verificar_draft,
+    verificar_rangos,
+)
 
 GOLDEN = Path(__file__).resolve().parent.parent / "tests" / "golden"
 AHORA = datetime(2026, 8, 3, 9, 0, tzinfo=timezone.utc)
@@ -192,6 +196,10 @@ def correr_caso(caso, modelo, detalle=False):
                 )
 
         problema = verificar_draft(borrador, espera.get("draft"), donde)
+        if problema:
+            return "falla", problema
+
+        problema = verificar_rangos(borrador, espera.get("draft_rango"), donde)
         if problema:
             return "falla", problema
 

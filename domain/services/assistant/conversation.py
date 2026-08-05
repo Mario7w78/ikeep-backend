@@ -55,6 +55,37 @@ _PROPUESTAS_QUE_EXIGEN_ID = {"proponer_modificacion", "proponer_eliminacion"}
 
 _RESPUESTA_VACIA = "Perdon, no te entendi. Me lo repetis?"
 
+DIAS = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"]
+
+
+def solapamientos(borrador: Borrador, agenda: list[BloqueAgenda]) -> list[dict[str, Any]]:
+    """Choques entre el horario del borrador y lo que ya esta agendado.
+
+    Se calcula aca y no se le pide al modelo: comparar rangos horarios es
+    aritmetica, y es exactamente donde estos modelos se equivocan. El servidor
+    lo resuelve y se lo entrega servido para que solo tenga que avisar.
+
+    El cliente igual valida los solapamientos antes de guardar; esto existe
+    para que el asistente pueda advertirlo en la conversacion, en vez de que
+    el usuario lo descubra recien al confirmar.
+    """
+    choques = []
+    for bloque in borrador.schedule:
+        for agendado in agenda:
+            if DIAS[agendado.dia] != bloque.day:
+                continue
+            # Se tocan si cada uno empieza antes de que el otro termine.
+            if bloque.start_time < agendado.fin and agendado.inicio < bloque.end_time:
+                choques.append(
+                    {
+                        "con": agendado.nombre,
+                        "dia": bloque.day,
+                        "inicio": agendado.inicio,
+                        "fin": agendado.fin,
+                    }
+                )
+    return choques
+
 
 class FuenteDeDatos(ABC):
     """Lo que el asistente puede leer del usuario.
@@ -188,7 +219,7 @@ class ServicioConversacion:
             # rechazan: un tool_call sin respuesta deja la conversacion
             # invalida para la API en el turno siguiente.
             for invocacion in respuesta.invocaciones:
-                borrador, resultado = self._ejecutar(invocacion, borrador)
+                borrador, resultado = self._ejecutar(invocacion, borrador, agenda)
                 turnos_nuevos.append(
                     {
                         "role": "tool",
@@ -248,14 +279,17 @@ class ServicioConversacion:
         return None
 
     def _ejecutar(
-        self, invocacion: InvocacionTool, borrador: Borrador
+        self,
+        invocacion: InvocacionTool,
+        borrador: Borrador,
+        agenda: list[BloqueAgenda],
     ) -> tuple[Borrador, dict[str, Any]]:
         if not es_tool_conocida(invocacion.nombre):
             logger.warning("Tool desconocida: %s", invocacion.nombre)
             return borrador, {"error": "Esa herramienta no existe."}
 
         if invocacion.nombre == "actualizar_borrador":
-            return self._actualizar_borrador(invocacion, borrador)
+            return self._actualizar_borrador(invocacion, borrador, agenda)
 
         if invocacion.nombre in TOOLS_DE_LECTURA:
             return borrador, self._leer(invocacion)
@@ -263,7 +297,10 @@ class ServicioConversacion:
         return borrador, {"ok": True}
 
     def _actualizar_borrador(
-        self, invocacion: InvocacionTool, borrador: Borrador
+        self,
+        invocacion: InvocacionTool,
+        borrador: Borrador,
+        agenda: list[BloqueAgenda],
     ) -> tuple[Borrador, dict[str, Any]]:
         try:
             patch = BorradorPatch(**invocacion.argumentos)
@@ -279,11 +316,21 @@ class ServicioConversacion:
         actualizado = aplicar_patch(borrador, patch)
         # El resultado le devuelve que sigue faltando, para que pregunte lo
         # siguiente sin tener que deducirlo del contexto.
-        return actualizado, {
+        resultado = {
             "ok": True,
             "falta": actualizado.campos_faltantes,
             "completo": actualizado.esta_completo,
         }
+
+        choques = solapamientos(actualizado, agenda)
+        if choques:
+            resultado["solapa_con"] = choques
+            resultado["aviso"] = (
+                "Ese horario se superpone con algo que ya tiene agendado. "
+                "Avisale antes de proponer."
+            )
+
+        return actualizado, resultado
 
     def _leer(self, invocacion: InvocacionTool) -> dict[str, Any]:
         try:

@@ -1,7 +1,11 @@
 nombre: Lenguaje difuso de tiempo se traduce a una ventana concreta
 descripcion: >
-  El modelo tiene que convertir lenguaje difuso en minutos. 840 son las 14:00
-  y 1200 las 20:00.
+  El modelo tiene que convertir "la tarde" en minutos. La ventana exacta
+  admite lecturas distintas —12 a 18, 14 a 20— asi que se verifica que sea
+  razonable, no que coincida al minuto.
+
+  El primer turno no alcanza para proponer: el usuario nunca dijo como se
+  llama la actividad, y preguntarlo es lo correcto.
 
 turnos:
   - usuario: quiero estudiar dos horas en algun momento de la tarde
@@ -9,19 +13,28 @@ turnos:
       - tools:
           - nombre: actualizar_borrador
             argumentos:
-              name: Estudiar
               activity_type: tarea
               is_fixed: false
               duracion_minutos: 120
               hora_preferida_inicio: 840
               hora_preferida_fin: 1200
+      - texto: Como le pongo?
+    espera:
+      tipo: pregunta
+      draft: {duracion_minutos: 120}
+      draft_rango:
+        hora_preferida_inicio: [660, 900]
+        hora_preferida_fin: [1020, 1260]
+
+  - usuario: ponele Repaso de historia
+    guion:
+      - tools:
+          - nombre: actualizar_borrador
+            argumentos: {name: Repaso de historia}
       - tools:
           - nombre: proponer_actividad
             argumentos: {}
     espera:
       tipo: propuesta
       propuesta: crear
-      draft:
-        hora_preferida_inicio: 840
-        hora_preferida_fin: 1200
-        duracion_minutos: 120
+      draft_conserva: [duracion_minutos, hora_preferida_inicio]

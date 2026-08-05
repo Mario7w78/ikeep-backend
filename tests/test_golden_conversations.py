@@ -25,7 +25,11 @@ from domain.services.assistant.conversation import (
     coincidencias,
 )
 from schemas.assistant import Borrador
-from tests.golden_asserts import verificar_conservados, verificar_draft
+from tests.golden_asserts import (
+    verificar_conservados,
+    verificar_draft,
+    verificar_rangos,
+)
 
 GOLDEN = Path(__file__).parent / "golden"
 AHORA = datetime(2026, 8, 3, 9, 0, tzinfo=timezone.utc)  # lunes 09:00
@@ -135,6 +139,9 @@ def _verificar(*, espera, resultado, previo, modelo, donde):
     problema = verificar_conservados(
         resultado.borrador, previo, espera.get("draft_conserva"), donde
     )
+    assert problema is None, problema
+
+    problema = verificar_rangos(resultado.borrador, espera.get("draft_rango"), donde)
     assert problema is None, problema
 
     if espera.get("draft_vacio"):

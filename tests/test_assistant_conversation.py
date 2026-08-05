@@ -360,3 +360,93 @@ class TestTurnosVerbatim:
             t["tool_call_id"] for t in resultado.turnos if t.get("role") == "tool"
         }
         assert pedidos == respondidos
+
+
+class TestSolapamiento:
+    """Comparar rangos horarios es aritmetica, justo donde estos modelos se
+    equivocan. El servidor lo resuelve y se lo entrega servido."""
+
+    def _agenda(self):
+        return [BloqueAgenda("act-1", "Calculo", dia=1, inicio=600, fin=720)]
+
+    def test_avisa_cuando_el_horario_choca(self):
+        datos = DatosDePrueba(agenda=self._agenda())
+        modelo = ModeloGuionado(
+            tool(
+                "actualizar_borrador",
+                {
+                    "name": "Gimnasio",
+                    "schedule": [{"day": "Martes", "start_time": 630, "end_time": 700}],
+                },
+            ),
+            texto("Ojo que se superpone con Calculo."),
+        )
+
+        servicio(modelo, datos).responder(
+            mensaje="gimnasio el martes 10:30", borrador=Borrador(), turnos=[], ahora=AHORA
+        )
+
+        resultado = [m for m in modelo.llamadas[1] if m.get("role") == "tool"][0]
+        assert "solapa_con" in resultado["content"]
+        assert "Calculo" in resultado["content"]
+
+    def test_no_avisa_si_no_choca(self):
+        datos = DatosDePrueba(agenda=self._agenda())
+        modelo = ModeloGuionado(
+            tool(
+                "actualizar_borrador",
+                {
+                    "name": "Gimnasio",
+                    "schedule": [{"day": "Martes", "start_time": 900, "end_time": 960}],
+                },
+            ),
+            texto("Listo"),
+        )
+
+        servicio(modelo, datos).responder(
+            mensaje="gimnasio el martes 15:00", borrador=Borrador(), turnos=[], ahora=AHORA
+        )
+
+        resultado = [m for m in modelo.llamadas[1] if m.get("role") == "tool"][0]
+        assert "solapa_con" not in resultado["content"]
+
+    def test_otro_dia_no_es_solapamiento(self):
+        datos = DatosDePrueba(agenda=self._agenda())
+        modelo = ModeloGuionado(
+            tool(
+                "actualizar_borrador",
+                {
+                    "name": "Gimnasio",
+                    "schedule": [{"day": "Lunes", "start_time": 600, "end_time": 720}],
+                },
+            ),
+            texto("Listo"),
+        )
+
+        servicio(modelo, datos).responder(
+            mensaje="gimnasio el lunes", borrador=Borrador(), turnos=[], ahora=AHORA
+        )
+
+        resultado = [m for m in modelo.llamadas[1] if m.get("role") == "tool"][0]
+        assert "solapa_con" not in resultado["content"]
+
+    def test_bloques_pegados_no_se_solapan(self):
+        """Terminar a las 12 y empezar a las 12 no es un choque."""
+        datos = DatosDePrueba(agenda=self._agenda())
+        modelo = ModeloGuionado(
+            tool(
+                "actualizar_borrador",
+                {
+                    "name": "Gimnasio",
+                    "schedule": [{"day": "Martes", "start_time": 720, "end_time": 780}],
+                },
+            ),
+            texto("Listo"),
+        )
+
+        servicio(modelo, datos).responder(
+            mensaje="gimnasio martes 12", borrador=Borrador(), turnos=[], ahora=AHORA
+        )
+
+        resultado = [m for m in modelo.llamadas[1] if m.get("role") == "tool"][0]
+        assert "solapa_con" not in resultado["content"]

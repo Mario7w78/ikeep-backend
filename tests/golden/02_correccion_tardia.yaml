@@ -14,9 +14,14 @@ turnos:
               is_fixed: true
               duracion_minutos: 120
               schedule: [{day: Lunes, start_time: 840, end_time: 960}]
-      - texto: Listo, la agrego?
+      - tools:
+          - nombre: proponer_actividad
+            argumentos: {}
     espera:
-      tipo: pregunta
+      # Propone de una: el usuario dio todo en un mensaje y preguntarle
+      # "la agrego?" seria un turno desperdiciado.
+      tipo: propuesta
+      propuesta: crear
       draft: {name: Estadistica, duracion_minutos: 120}
 
   - usuario: mejor de 15 a 17
@@ -25,8 +30,11 @@ turnos:
           - nombre: actualizar_borrador
             argumentos:
               schedule: [{day: Lunes, start_time: 900, end_time: 1020}]
-      - texto: Cambiado. La agrego?
+      - tools:
+          - nombre: proponer_actividad
+            argumentos: {}
     espera:
-      tipo: pregunta
+      tipo: propuesta
+      propuesta: crear
       draft: {duracion_minutos: 120, name: Estadistica}
       draft_conserva: [name, activity_type, duracion_minutos]
