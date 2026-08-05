@@ -20,6 +20,7 @@ pydantic-settings==2.14.1
 pydantic_core==2.41.5
 PyJWT==2.13.0
 pytest==9.0.3
+PyYAML==6.0.3
 python-dateutil==2.9.0.post0
 supabase==2.31.0
 six==1.17.0

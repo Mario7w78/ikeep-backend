@@ -1,0 +1,24 @@
+nombre: Responde que hay agendado
+descripcion: >
+  Caso de uso nuevo. Antes el asistente solo sabia crear, porque la agenda le
+  llegaba como prosa sin ids.
+
+agenda:
+  - id: act-1
+    nombre: Calculo
+    dia: 1
+    inicio: 600
+    fin: 720
+
+turnos:
+  - usuario: que tengo el martes?
+    guion:
+      - tools:
+          - nombre: consultar_agenda
+            argumentos: {}
+      - texto: El martes tenes Calculo de 10 a 12.
+    espera:
+      tipo: pregunta
+      tools: [consultar_agenda]
+      # El borrador no se toca: preguntar por la agenda no es crear nada.
+      draft_vacio: true

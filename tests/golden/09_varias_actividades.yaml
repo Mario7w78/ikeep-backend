@@ -1,0 +1,26 @@
+nombre: Varios datos en un solo mensaje
+descripcion: >
+  Cuando el usuario da todo junto, no hay que preguntarle de nuevo lo que ya
+  dijo.
+
+turnos:
+  - usuario: clase de fisica los lunes y miercoles de 8 a 10, dificultad alta
+    guion:
+      - tools:
+          - nombre: actualizar_borrador
+            argumentos:
+              name: Fisica
+              activity_type: clase
+              is_fixed: true
+              difficulty: alta
+              schedule:
+                - {day: Lunes, start_time: 480, end_time: 600}
+                - {day: Miercoles, start_time: 480, end_time: 600}
+      - tools:
+          - nombre: proponer_actividad
+            argumentos: {}
+    espera:
+      tipo: propuesta
+      propuesta: crear
+      draft: {name: Fisica, difficulty: alta}
+      schedule_dias: [Lunes, Miercoles]

@@ -1,0 +1,32 @@
+nombre: Una correccion tardia no borra el resto
+descripcion: >
+  El usuario cambia la hora despues de haberla dado. Debe cambiar solo eso: la
+  duracion y el nombre siguen siendo los mismos.
+
+turnos:
+  - usuario: tarea de estadistica, dos horas, el lunes de 14 a 16
+    guion:
+      - tools:
+          - nombre: actualizar_borrador
+            argumentos:
+              name: Estadistica
+              activity_type: tarea
+              is_fixed: true
+              duracion_minutos: 120
+              schedule: [{day: Lunes, start_time: 840, end_time: 960}]
+      - texto: Listo, la agrego?
+    espera:
+      tipo: pregunta
+      draft: {name: Estadistica, duracion_minutos: 120}
+
+  - usuario: mejor de 15 a 17
+    guion:
+      - tools:
+          - nombre: actualizar_borrador
+            argumentos:
+              schedule: [{day: Lunes, start_time: 900, end_time: 1020}]
+      - texto: Cambiado. La agrego?
+    espera:
+      tipo: pregunta
+      draft: {duracion_minutos: 120, name: Estadistica}
+      draft_conserva: [name, activity_type, duracion_minutos]

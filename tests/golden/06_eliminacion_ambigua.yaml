@@ -1,0 +1,21 @@
+nombre: Con dos coincidencias, pregunta cual
+descripcion: >
+  Elegir por el usuario podria borrar lo que no era. Ante la duda, se
+  pregunta.
+
+actividades:
+  - id: act-1
+    nombre: Clase de Calculo
+  - id: act-2
+    nombre: Tarea de Calculo
+
+turnos:
+  - usuario: elimina calculo
+    guion:
+      - tools:
+          - nombre: buscar_actividad
+            argumentos: {texto: calculo}
+      - texto: Encontre dos. Cual queres borrar, la clase o la tarea?
+    espera:
+      tipo: pregunta
+      tools: [buscar_actividad]

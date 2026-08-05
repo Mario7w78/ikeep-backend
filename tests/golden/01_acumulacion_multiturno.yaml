@@ -1,0 +1,40 @@
+nombre: Acumula datos a lo largo de varios turnos
+descripcion: >
+  El caso que motivo toda la Fase 1. El usuario da un dato por turno y no
+  repite los anteriores. Antes, el nombre se perdia en el segundo mensaje
+  porque el JSON extraido nunca volvia al modelo.
+
+turnos:
+  - usuario: quiero agendar mi clase de calculo
+    guion:
+      - tools:
+          - nombre: actualizar_borrador
+            argumentos: {name: Calculo, activity_type: clase}
+      - texto: Dale. Que dias la tenes?
+    espera:
+      tipo: pregunta
+      draft: {name: Calculo, activity_type: clase}
+      tools: [actualizar_borrador]
+
+  - usuario: los martes
+    guion:
+      - tools:
+          - nombre: actualizar_borrador
+            argumentos:
+              is_fixed: true
+              schedule: [{day: Martes, start_time: 600, end_time: 720}]
+      - texto: A que hora?
+    espera:
+      tipo: pregunta
+      # El aserto que hoy fallaria siempre.
+      draft_conserva: [name, activity_type]
+
+  - usuario: de 10 a 12
+    guion:
+      - tools:
+          - nombre: proponer_actividad
+            argumentos: {}
+    espera:
+      tipo: propuesta
+      propuesta: crear
+      draft_conserva: [name, activity_type, is_fixed]

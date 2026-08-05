@@ -1,0 +1,24 @@
+nombre: Sin traslado es cero, no ausente
+descripcion: >
+  El cliente compara travelTo contra el valor del chip, asi que null hacia que
+  ni siquiera "Sin traslado" apareciera seleccionado.
+
+turnos:
+  - usuario: clase de quimica el jueves de 9 a 11, no tengo que viajar
+    guion:
+      - tools:
+          - nombre: actualizar_borrador
+            argumentos:
+              name: Quimica
+              activity_type: clase
+              is_fixed: true
+              travel_to: 0
+              travel_from: 0
+              schedule: [{day: Jueves, start_time: 540, end_time: 660}]
+      - tools:
+          - nombre: proponer_actividad
+            argumentos: {}
+    espera:
+      tipo: propuesta
+      propuesta: crear
+      draft: {travel_to: 0, travel_from: 0}

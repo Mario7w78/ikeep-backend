@@ -1,0 +1,12 @@
+nombre: Regenera el horario completo
+descripcion: Caso de uso nuevo. No necesita borrador ni id.
+
+turnos:
+  - usuario: reorganiza mi semana
+    guion:
+      - tools:
+          - nombre: proponer_regeneracion
+            argumentos: {}
+    espera:
+      tipo: propuesta
+      propuesta: regenerar

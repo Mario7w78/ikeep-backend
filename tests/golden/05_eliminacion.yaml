@@ -1,0 +1,23 @@
+nombre: Elimina una actividad
+descripcion: >
+  Requiere buscar el id antes de proponer. Sin ids en el contexto esto era
+  imposible.
+
+actividades:
+  - id: act-7
+    nombre: Gimnasio
+
+turnos:
+  - usuario: borra el gimnasio
+    guion:
+      - tools:
+          - nombre: buscar_actividad
+            argumentos: {texto: gimnasio}
+      - tools:
+          - nombre: proponer_eliminacion
+            argumentos: {activity_id: act-7}
+    espera:
+      tipo: propuesta
+      propuesta: eliminar
+      activity_id: act-7
+      tools: [buscar_actividad]

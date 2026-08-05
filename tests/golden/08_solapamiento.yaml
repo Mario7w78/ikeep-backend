@@ -1,0 +1,26 @@
+nombre: Detecta que se superpone con algo existente
+descripcion: >
+  El modelo tiene la agenda con horarios en el contexto, asi que puede avisar
+  antes de proponer. La validacion dura la hace igual el cliente.
+
+agenda:
+  - id: act-1
+    nombre: Calculo
+    dia: 1
+    inicio: 600
+    fin: 720
+
+turnos:
+  - usuario: agenda gimnasio el martes de 10 a 11
+    guion:
+      - tools:
+          - nombre: actualizar_borrador
+            argumentos:
+              name: Gimnasio
+              activity_type: tarea
+              is_fixed: true
+              schedule: [{day: Martes, start_time: 600, end_time: 660}]
+      - texto: Ojo que a esa hora tenes Calculo. La agrego igual?
+    espera:
+      tipo: pregunta
+      draft: {name: Gimnasio}

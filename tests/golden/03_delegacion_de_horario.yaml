@@ -1,0 +1,22 @@
+nombre: El usuario delega cuando hacerla
+descripcion: >
+  "Cuando mejor encaje" significa que no es fija: el solver elige. Lo que no
+  puede faltar es la duracion.
+
+turnos:
+  - usuario: tengo que estudiar ingles una hora, cuando mejor encaje
+    guion:
+      - tools:
+          - nombre: actualizar_borrador
+            argumentos:
+              name: Ingles
+              activity_type: tarea
+              is_fixed: false
+              duracion_minutos: 60
+      - tools:
+          - nombre: proponer_actividad
+            argumentos: {}
+    espera:
+      tipo: propuesta
+      propuesta: crear
+      draft: {is_fixed: false, duracion_minutos: 60}

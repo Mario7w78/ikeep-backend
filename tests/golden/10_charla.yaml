@@ -1,0 +1,13 @@
+nombre: Charla fuera de tema
+descripcion: >
+  No toda frase es una actividad. Intentar extraer algo de "como estas" es
+  como se llega a actividades llamadas "bien".
+
+turnos:
+  - usuario: hola, como estas?
+    guion:
+      - texto: Bien! En que te ayudo con tu horario?
+    espera:
+      tipo: pregunta
+      draft_vacio: true
+      tools: []
