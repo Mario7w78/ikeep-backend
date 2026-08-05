@@ -24,6 +24,7 @@ from domain.ports.outbound.conversational_llm_port import (
     ConversationalLLMPort,
     InvocacionTool,
 )
+from domain.services.assistant.budget import podar_turnos
 from domain.services.assistant.context_builder import BloqueAgenda, construir_contexto
 from domain.services.assistant.draft import aplicar_patch
 from domain.services.assistant.system_prompt import SYSTEM_PROMPT
@@ -140,7 +141,12 @@ class ServicioConversacion:
         # resultados vuelven al modelo tal como los emitio, no parafraseados.
         # Que reciba de vuelta su propio JSON estructurado es lo que evita que
         # tenga que re-deducirlo de la prosa.
-        turnos_nuevos = list(turnos) + [{"role": "user", "content": mensaje}]
+        # Se poda al entrar y no al salir: asi el cliente conserva la
+        # conversacion completa para mostrarla, y el recorte solo afecta a lo
+        # que ve el modelo.
+        turnos_nuevos = podar_turnos(turnos) + [
+            {"role": "user", "content": mensaje}
+        ]
         tools = definiciones_openai()
 
         for _ in range(MAX_ITERACIONES):
