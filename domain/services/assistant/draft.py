@@ -38,17 +38,45 @@ def aplicar_patch(borrador: Borrador, patch: BorradorPatch) -> Borrador:
     return _inferir_lo_deducible(actualizado)
 
 
+def _duracion_del_bloque(bloque) -> int:
+    """Largo en minutos, contemplando el cruce de medianoche."""
+    if bloque.end_time >= bloque.start_time:
+        return bloque.end_time - bloque.start_time
+    return (1440 - bloque.start_time) + bloque.end_time
+
+
 def _inferir_lo_deducible(borrador: Borrador) -> Borrador:
     """Completa lo que se sigue de los datos, en vez de preguntarlo.
 
-    Dar dia y hora concretos ES la definicion de actividad fija: un modelo que
-    ya emitio un bloque horario no deberia tener ademas que acordarse de
-    marcar is_fixed. Sin esto el borrador queda incompleto para siempre y el
-    asistente pregunta algo cuya respuesta ya tiene delante.
+    Todas estas deducciones salieron de correr las conversaciones doradas
+    contra modelos reales: acertaban el dato pero se olvidaban de marcar la
+    consecuencia, y el borrador quedaba incompleto para siempre mientras el
+    asistente preguntaba algo cuya respuesta ya tenia delante.
 
-    Va aca y no en el prompt porque es una deduccion, no un criterio: pedirsela
-    al modelo es delegar logica en algo probabilistico.
+    Van aca y no en el prompt porque son deducciones, no criterios. Pedirle al
+    modelo que ademas de entender saque la conclusion es delegar logica en
+    algo probabilistico, teniendo la logica a mano.
+
+    Ninguna pisa una decision explicita: solo completan lo que quedo vacio.
     """
-    if borrador.schedule and borrador.is_fixed is None:
-        return borrador.model_copy(update={"is_fixed": True})
-    return borrador
+    cambios = {}
+
+    if borrador.schedule:
+        # Dar dia y hora concretos ES la definicion de actividad fija.
+        if borrador.is_fixed is None:
+            cambios["is_fixed"] = True
+        # Y la duracion es el largo del bloque: pedirla aparte es pedir dos
+        # veces el mismo dato, con la posibilidad de que se contradigan.
+        if borrador.duracion_minutos is None:
+            cambios["duracion_minutos"] = _duracion_del_bloque(borrador.schedule[0])
+
+    # Una ventana preferida solo tiene sentido si alguien mas elige el
+    # horario: si el usuario lo dictara, daria la hora y no un rango.
+    elif (
+        borrador.is_fixed is None
+        and borrador.hora_preferida_inicio is not None
+        and borrador.hora_preferida_fin is not None
+    ):
+        cambios["is_fixed"] = False
+
+    return borrador.model_copy(update=cambios) if cambios else borrador

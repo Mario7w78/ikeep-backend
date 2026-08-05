@@ -297,3 +297,76 @@ class TestInferencia:
         )
 
         assert borrador.esta_completo is True
+
+
+class TestInferenciaDeDuracion:
+    """Salio de las conversaciones doradas: el modelo ponia el horario pero
+    no la duracion, y el borrador quedaba incompleto teniendo el dato."""
+
+    def test_la_duracion_sale_del_largo_del_bloque(self):
+        borrador = aplicar_patch(
+            Borrador(),
+            BorradorPatch(schedule=[BloqueHorario(day="Lunes", start_time=840, end_time=960)]),
+        )
+
+        assert borrador.duracion_minutos == 120
+
+    def test_contempla_el_cruce_de_medianoche(self):
+        """23:00 a 01:00 son dos horas, no menos veintidos."""
+        borrador = aplicar_patch(
+            Borrador(),
+            BorradorPatch(schedule=[BloqueHorario(day="Lunes", start_time=1380, end_time=60)]),
+        )
+
+        assert borrador.duracion_minutos == 120
+
+    def test_no_pisa_una_duracion_declarada(self):
+        borrador = aplicar_patch(
+            Borrador(),
+            BorradorPatch(
+                duracion_minutos=90,
+                schedule=[BloqueHorario(day="Lunes", start_time=840, end_time=960)],
+            ),
+        )
+
+        assert borrador.duracion_minutos == 90
+
+
+class TestInferenciaDeFlexible:
+    """Una ventana preferida solo tiene sentido si el solver elige el horario:
+    si el usuario lo dictara, daria la hora y no un rango."""
+
+    def test_una_ventana_preferida_implica_flexible(self):
+        borrador = aplicar_patch(
+            Borrador(),
+            BorradorPatch(hora_preferida_inicio=840, hora_preferida_fin=1200),
+        )
+
+        assert borrador.is_fixed is False
+
+    def test_no_infiere_con_media_ventana(self):
+        borrador = aplicar_patch(Borrador(), BorradorPatch(hora_preferida_inicio=840))
+
+        assert borrador.is_fixed is None
+
+    def test_un_horario_concreto_gana_sobre_la_ventana(self):
+        """Si hay bloques, es fija aunque tambien haya ventana preferida."""
+        borrador = aplicar_patch(
+            Borrador(),
+            BorradorPatch(
+                hora_preferida_inicio=840,
+                hora_preferida_fin=1200,
+                schedule=[BloqueHorario(day="Lunes", start_time=900, end_time=960)],
+            ),
+        )
+
+        assert borrador.is_fixed is True
+
+    def test_no_pisa_una_decision_explicita(self):
+        borrador = aplicar_patch(Borrador(), BorradorPatch(is_fixed=True))
+
+        resultado = aplicar_patch(
+            borrador, BorradorPatch(hora_preferida_inicio=840, hora_preferida_fin=1200)
+        )
+
+        assert resultado.is_fixed is True

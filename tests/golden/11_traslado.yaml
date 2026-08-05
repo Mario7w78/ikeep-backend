@@ -21,4 +21,7 @@ turnos:
     espera:
       tipo: propuesta
       propuesta: crear
-      draft: {travel_to: 0, travel_from: 0}
+      # No se exige travel_to: 0. El chip de "Sin traslado" del cliente dejo
+      # de depender de eso en la Fase 0, y forzarlo aca mediria un detalle
+      # que ya no le cambia nada al usuario.
+      draft: {name: Quimica}
