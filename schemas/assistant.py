@@ -10,7 +10,7 @@ describe lo que se sabe hasta ahora, no una actividad terminada.
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # Minutos desde medianoche. El limite superior evita que una hora invalida
 # llegue al solver: reemplaza las lineas del prompt que le pedian al modelo no
@@ -36,6 +36,24 @@ class BloqueHorario(BaseModel):
     day: str = Field(description="Dia en espanol, ej. 'Martes'")
     start_time: int = Field(ge=0, le=MINUTO_MAXIMO)
     end_time: int = Field(ge=0, le=MINUTO_MAXIMO)
+
+    @model_validator(mode="after")
+    def rechazar_duracion_cero(self):
+        """Un bloque que empieza y termina a la misma hora no es un horario.
+
+        Los modelos lo usan como marcador cuando el usuario dijo el dia pero
+        no la hora ("los martes"). Aceptarlo hacia que el borrador pareciera
+        completo y se propusiera una actividad sin horario real.
+
+        No se compara start < end: un bloque de 23:00 a 01:00 cruza medianoche
+        y es perfectamente valido.
+        """
+        if self.start_time == self.end_time:
+            raise ValueError(
+                "El bloque no puede empezar y terminar a la misma hora; "
+                "falta preguntar el horario."
+            )
+        return self
 
     @field_validator("day")
     @classmethod

@@ -25,6 +25,7 @@ from domain.services.assistant.conversation import (
     coincidencias,
 )
 from schemas.assistant import Borrador
+from tests.golden_asserts import verificar_conservados, verificar_draft
 
 GOLDEN = Path(__file__).parent / "golden"
 AHORA = datetime(2026, 8, 3, 9, 0, tzinfo=timezone.utc)  # lunes 09:00
@@ -125,19 +126,16 @@ def _verificar(*, espera, resultado, previo, modelo, donde):
     if "activity_id" in espera:
         assert resultado.propuesta.activity_id == espera["activity_id"], donde
 
-    # El borrador es el contrato, no el texto de las preguntas: asertar frases
-    # exactas se rompe con cada ajuste del prompt y no protege nada.
-    for campo, valor in (espera.get("draft") or {}).items():
-        actual = getattr(resultado.borrador, campo)
-        assert actual == valor, f"{donde}: draft.{campo} = {actual!r}, esperaba {valor!r}"
+    # El borrador es el contrato, no el texto de las preguntas. Se usa el mismo
+    # comparador que la corrida contra el proveedor real para que las dos
+    # midan exactamente lo mismo.
+    problema = verificar_draft(resultado.borrador, espera.get("draft"), donde)
+    assert problema is None, problema
 
-    for campo in espera.get("draft_conserva", []):
-        anterior = getattr(previo, campo)
-        actual = getattr(resultado.borrador, campo)
-        assert actual == anterior, (
-            f"{donde}: se perdio draft.{campo} "
-            f"({anterior!r} -> {actual!r}). Esto es el 'se olvida'."
-        )
+    problema = verificar_conservados(
+        resultado.borrador, previo, espera.get("draft_conserva"), donde
+    )
+    assert problema is None, problema
 
     if espera.get("draft_vacio"):
         assert resultado.borrador == Borrador(), f"{donde}: el borrador no debia tocarse"

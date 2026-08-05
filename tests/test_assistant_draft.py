@@ -143,7 +143,12 @@ class TestHorarios:
 class TestValidacionDeHoras:
     @pytest.mark.parametrize("minuto", [0, 720, 1439])
     def test_acepta_minutos_validos_del_dia(self, minuto):
-        assert BloqueHorario(day="Lunes", start_time=minuto, end_time=minuto).start_time == minuto
+        # El fin se corre un minuto: un bloque de duracion cero se rechaza
+        # aparte, y usar el mismo valor para los dos medía otra cosa.
+        fin = minuto + 1 if minuto < 1439 else minuto - 1
+        bloque = BloqueHorario(day="Lunes", start_time=minuto, end_time=fin)
+
+        assert bloque.start_time == minuto
 
     @pytest.mark.parametrize("minuto", [-1, 1440, 9999])
     def test_rechaza_minutos_fuera_del_dia(self, minuto):
@@ -224,6 +229,69 @@ class TestListoParaProponer:
                 name="Calculo",
                 activity_type="clase",
                 is_fixed=True,
+                schedule=[BloqueHorario(day="Martes", start_time=600, end_time=720)],
+            ),
+        )
+
+        assert borrador.esta_completo is True
+
+
+class TestBloqueSinDuracion:
+    """Un modelo real uso 00:00-00:00 como marcador cuando el usuario dijo el
+    dia pero no la hora. Aceptarlo hacia que el borrador pareciera completo y
+    se propusiera una actividad sin horario."""
+
+    def test_rechaza_un_bloque_de_duracion_cero(self):
+        with pytest.raises(ValueError, match="misma hora"):
+            BloqueHorario(day="Martes", start_time=0, end_time=0)
+
+    def test_rechaza_duracion_cero_a_cualquier_hora(self):
+        with pytest.raises(ValueError):
+            BloqueHorario(day="Martes", start_time=600, end_time=600)
+
+    def test_acepta_un_bloque_que_cruza_medianoche(self):
+        """23:00 a 01:00 es valido: no se compara start < end."""
+        bloque = BloqueHorario(day="Martes", start_time=1380, end_time=60)
+
+        assert bloque.start_time == 1380
+        assert bloque.end_time == 60
+
+
+class TestInferencia:
+    """Un modelo real emitio un horario concreto pero nunca marco is_fixed, y
+    el borrador quedaba incompleto para siempre: el asistente preguntaba algo
+    cuya respuesta ya tenia delante."""
+
+    def test_un_horario_concreto_implica_actividad_fija(self):
+        borrador = aplicar_patch(
+            Borrador(),
+            BorradorPatch(schedule=[BloqueHorario(day="Martes", start_time=600, end_time=720)]),
+        )
+
+        assert borrador.is_fixed is True
+
+    def test_no_pisa_una_decision_explicita(self):
+        """Si el usuario dijo que es flexible, un horario no lo contradice."""
+        borrador = aplicar_patch(Borrador(), BorradorPatch(is_fixed=False))
+
+        resultado = aplicar_patch(
+            borrador,
+            BorradorPatch(schedule=[BloqueHorario(day="Martes", start_time=600, end_time=720)]),
+        )
+
+        assert resultado.is_fixed is False
+
+    def test_sin_horario_no_infiere_nada(self):
+        borrador = aplicar_patch(Borrador(), BorradorPatch(name="Calculo"))
+
+        assert borrador.is_fixed is None
+
+    def test_con_horario_el_borrador_puede_completarse(self):
+        borrador = aplicar_patch(
+            Borrador(),
+            BorradorPatch(
+                name="Calculo",
+                activity_type="clase",
                 schedule=[BloqueHorario(day="Martes", start_time=600, end_time=720)],
             ),
         )
