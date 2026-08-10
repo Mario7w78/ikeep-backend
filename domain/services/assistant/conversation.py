@@ -12,6 +12,7 @@ conversacion por delante.
 
 import json
 import logging
+import time
 import unicodedata
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -42,6 +43,20 @@ logger = logging.getLogger(__name__)
 # colgar la peticion; a partir de aca se le exige que responda con texto.
 MAX_ITERACIONES = 6
 
+# Tope de tiempo real por turno, que es el que importa de verdad.
+#
+# Contar iteraciones no acota la duracion: cada vuelta puede tardar hasta 25s
+# por proveedor, y con failover se triplica. Sin esto, un turno lento supera
+# el limite del proxy de Render y el usuario recibe un 502 —un error de
+# plataforma, sin mensaje ni forma de recuperarse— en vez de una respuesta.
+#
+# 45s deja margen bajo los 60s que espera el cliente antes de abortar.
+PRESUPUESTO_SEGUNDOS = 45.0
+
+_SIN_TIEMPO = (
+    "Perdón, me está costando responder ahora. ¿Me lo dices otra vez?"
+)
+
 _PROPUESTAS = {
     "proponer_actividad": "crear",
     "proponer_modificacion": "modificar",
@@ -53,7 +68,7 @@ _PROPUESTAS = {
 # senalar, y proponer a ciegas podria borrar o cambiar lo que no era.
 _PROPUESTAS_QUE_EXIGEN_ID = {"proponer_modificacion", "proponer_eliminacion"}
 
-_RESPUESTA_VACIA = "Perdon, no te entendi. Me lo repetis?"
+_RESPUESTA_VACIA = "Perdón, no te entendí. ¿Me lo repites?"
 
 DIAS = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"]
 
@@ -179,8 +194,22 @@ class ServicioConversacion:
             {"role": "user", "content": mensaje}
         ]
         tools = definiciones_openai()
+        vence_en = time.monotonic() + PRESUPUESTO_SEGUNDOS
 
         for _ in range(MAX_ITERACIONES):
+            # Se comprueba antes de llamar y no despues: una vuelta mas puede
+            # tardar mas que todo lo transcurrido, y quedarse sin tiempo a
+            # mitad de una llamada es justamente lo que produce el 502.
+            if time.monotonic() >= vence_en:
+                logger.warning("Se agoto el presupuesto de tiempo del turno.")
+                return ResultadoConversacion(
+                    tipo="pregunta",
+                    mensaje=_SIN_TIEMPO,
+                    borrador=borrador,
+                    turnos=turnos_nuevos,
+                    propuesta=None,
+                )
+
             mensajes = [
                 {
                     "role": "system",

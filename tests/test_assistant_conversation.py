@@ -450,3 +450,64 @@ class TestSolapamiento:
 
         resultado = [m for m in modelo.llamadas[1] if m.get("role") == "tool"][0]
         assert "solapa_con" not in resultado["content"]
+
+
+class TestPresupuestoDeTiempo:
+    """Contar iteraciones no acota la duracion de un turno: cada vuelta puede
+    tardar 25s por proveedor y con failover se triplica. Sin tope de tiempo
+    real, un turno lento supera el limite del proxy y el usuario recibe un 502
+    —sin mensaje y sin forma de recuperarse— en vez de una respuesta."""
+
+    def test_devuelve_algo_util_cuando_se_acaba_el_tiempo(self):
+        from unittest.mock import patch
+
+        from domain.services.assistant.conversation import PRESUPUESTO_SEGUNDOS
+
+        modelo = ModeloGuionado(
+            *[tool("actualizar_borrador", {"name": f"n{i}"}) for i in range(6)]
+        )
+
+        # El reloj salta mas alla del presupuesto despues de la primera vuelta.
+        tiempos = iter([0.0, 0.0, PRESUPUESTO_SEGUNDOS + 1] + [PRESUPUESTO_SEGUNDOS + 1] * 20)
+        with patch("time.monotonic", lambda: next(tiempos)):
+            resultado = servicio(modelo).responder(
+                mensaje="hola", borrador=Borrador(), turnos=[], ahora=AHORA
+            )
+
+        assert resultado.tipo == "pregunta"
+        assert resultado.mensaje
+        # No agoto las seis vueltas: corto por tiempo.
+        assert len(modelo.llamadas) < 6
+
+    def test_un_turno_rapido_no_se_corta(self):
+        from unittest.mock import patch
+
+        modelo = ModeloGuionado(
+            tool("actualizar_borrador", {"name": "Calculo"}), texto("Que dias?")
+        )
+
+        with patch("time.monotonic", lambda: 0.0):
+            resultado = servicio(modelo).responder(
+                mensaje="calculo", borrador=Borrador(), turnos=[], ahora=AHORA
+            )
+
+        assert resultado.mensaje == "Que dias?"
+        assert resultado.borrador.name == "Calculo"
+
+    def test_conserva_el_borrador_al_cortar(self):
+        """Quedarse sin tiempo no puede costar lo que ya se entendio."""
+        from unittest.mock import patch
+
+        from domain.services.assistant.conversation import PRESUPUESTO_SEGUNDOS
+
+        modelo = ModeloGuionado(
+            *[tool("actualizar_borrador", {"name": "Calculo"}) for _ in range(6)]
+        )
+        tiempos = iter([0.0, 0.0, PRESUPUESTO_SEGUNDOS + 1] + [PRESUPUESTO_SEGUNDOS + 1] * 20)
+
+        with patch("time.monotonic", lambda: next(tiempos)):
+            resultado = servicio(modelo).responder(
+                mensaje="calculo", borrador=Borrador(), turnos=[], ahora=AHORA
+            )
+
+        assert resultado.borrador.name == "Calculo"
