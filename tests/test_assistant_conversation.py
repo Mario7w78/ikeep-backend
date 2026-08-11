@@ -511,3 +511,87 @@ class TestPresupuestoDeTiempo:
             )
 
         assert resultado.borrador.name == "Calculo"
+
+
+class TestNoAfirmarLoQueNoHizo:
+    """Nada se guarda hasta que el usuario confirma una propuesta.
+
+    Un turno que termina en texto no persistio nada, asi que decir que algo
+    "quedo actualizado" es falso siempre. El usuario cierra el chat creyendo
+    que su horario cambio, y no cambio: eso paso en produccion.
+    """
+
+    def test_se_le_corrige_y_vuelve_a_intentar(self):
+        modelo = ModeloGuionado(
+            texto("Listo, la tarea PEPE quedó actualizada."),
+            texto("¿Quieres que la aplique con esos datos?"),
+        )
+
+        resultado = servicio(modelo).responder(
+            mensaje="nada mas", borrador=Borrador(), turnos=[], ahora=AHORA
+        )
+
+        assert resultado.mensaje == "¿Quieres que la aplique con esos datos?"
+
+    def test_la_correccion_le_llega_al_modelo(self):
+        modelo = ModeloGuionado(
+            texto("Ya está creada."),
+            texto("¿La creo?"),
+        )
+
+        servicio(modelo).responder(
+            mensaje="dale", borrador=Borrador(), turnos=[], ahora=AHORA
+        )
+
+        correccion = modelo.llamadas[1][-1]
+        assert correccion["role"] == "system"
+        assert "No has guardado nada" in correccion["content"]
+
+    def test_si_insiste_el_usuario_ve_la_verdad(self):
+        modelo = ModeloGuionado(
+            texto("Ya la guardé."),
+            texto("Sí, ya la guardé, no te preocupes."),
+        )
+
+        resultado = servicio(modelo).responder(
+            mensaje="seguro?", borrador=Borrador(), turnos=[], ahora=AHORA
+        )
+
+        assert "Todavía no guardé nada" in resultado.mensaje
+        assert resultado.propuesta is None
+
+    def test_una_propuesta_si_puede_hablar_en_futuro(self):
+        modelo = ModeloGuionado(texto("Voy a crearla en cuanto me confirmes."))
+
+        resultado = servicio(modelo).responder(
+            mensaje="dale", borrador=Borrador(), turnos=[], ahora=AHORA
+        )
+
+        assert resultado.mensaje == "Voy a crearla en cuanto me confirmes."
+
+
+class TestSinMarkdown:
+    """El chat muestra texto plano: un asterisco es un asterisco.
+
+    El prompt ya lo prohibe y el modelo igual lo escribe. Pedirlo no alcanza.
+    """
+
+    def test_se_quitan_las_marcas_del_mensaje(self):
+        modelo = ModeloGuionado(texto("**Nombre:** PEPE\n**Tipo:** tarea"))
+
+        resultado = servicio(modelo).responder(
+            mensaje="dame los datos", borrador=Borrador(), turnos=[], ahora=AHORA
+        )
+
+        assert resultado.mensaje == "Nombre: PEPE\nTipo: tarea"
+
+    def test_el_turno_guardado_conserva_lo_que_dijo_el_modelo(self):
+        # Los turnos vuelven al modelo verbatim. Limpiar ahi tambien seria
+        # reescribirle su propia memoria.
+        modelo = ModeloGuionado(texto("**PEPE**"))
+
+        resultado = servicio(modelo).responder(
+            mensaje="dame los datos", borrador=Borrador(), turnos=[], ahora=AHORA
+        )
+
+        assert resultado.turnos[-1]["content"] == "**PEPE**"

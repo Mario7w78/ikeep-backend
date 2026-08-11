@@ -29,6 +29,7 @@ from domain.services.assistant.budget import podar_turnos
 from domain.services.assistant.context_builder import BloqueAgenda, construir_contexto
 from domain.services.assistant.draft import aplicar_patch
 from domain.services.assistant.system_prompt import SYSTEM_PROMPT
+from domain.services.assistant.text import afirma_haber_actuado, limpiar_markdown
 from domain.services.assistant.tools import (
     TOOLS_DE_LECTURA,
     TOOLS_DE_PROPUESTA,
@@ -69,6 +70,23 @@ _PROPUESTAS = {
 _PROPUESTAS_QUE_EXIGEN_ID = {"proponer_modificacion", "proponer_eliminacion"}
 
 _RESPUESTA_VACIA = "Perdón, no te entendí. ¿Me lo repites?"
+
+# Lo que se le dice al modelo cuando afirma haber hecho algo que no hizo.
+#
+# Va como turno de sistema dentro del mismo bucle, no como un reintento
+# aparte: el modelo conserva todo lo que ya extrajo y solo corrige el final.
+_CORRECCION = (
+    "No has guardado nada. Nada se guarda hasta que el usuario confirma una "
+    "propuesta. Si el borrador esta completo, llama a proponer_actividad "
+    "ahora. Si falta algo, preguntalo. Nunca digas que algo quedo creado, "
+    "guardado, actualizado o eliminado."
+)
+
+# Lo que ve el usuario si el modelo insiste en mentir.
+_NO_SE_GUARDO = (
+    "Todavía no guardé nada: necesito que me lo confirmes primero. "
+    "¿Quieres que lo aplique?"
+)
 
 DIAS = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"]
 
@@ -195,6 +213,9 @@ class ServicioConversacion:
         ]
         tools = definiciones_openai()
         vence_en = time.monotonic() + PRESUPUESTO_SEGUNDOS
+        # Se corrige una sola vez por turno: si insiste, se le responde al
+        # usuario con la verdad en vez de seguir gastando vueltas.
+        ya_corregi = False
 
         for _ in range(MAX_ITERACIONES):
             # Se comprueba antes de llamar y no despues: una vuelta mas puede
@@ -223,9 +244,39 @@ class ServicioConversacion:
             respuesta = self._modelo.conversar(mensajes, tools)
 
             if not respuesta.pide_tools:
+                # Un turno sin propuesta no guardo nada, asi que decir que
+                # algo quedo creado o actualizado es falso siempre. No es un
+                # problema de estilo: el usuario cierra el chat creyendo que
+                # su horario cambio, y no cambio.
+                if afirma_haber_actuado(respuesta.texto):
+                    if not ya_corregi:
+                        ya_corregi = True
+                        logger.warning(
+                            "El modelo afirmo haber actuado sin proponer nada."
+                        )
+                        turnos_nuevos.append(
+                            {"role": "assistant", "content": respuesta.texto or ""}
+                        )
+                        turnos_nuevos.append(
+                            {"role": "system", "content": _CORRECCION}
+                        )
+                        continue
+
+                    logger.error(
+                        "El modelo insistio en afirmar que actuo. Se reemplaza."
+                    )
+                    return ResultadoConversacion(
+                        tipo="pregunta",
+                        mensaje=_NO_SE_GUARDO,
+                        borrador=borrador,
+                        turnos=turnos_nuevos
+                        + [{"role": "assistant", "content": _NO_SE_GUARDO}],
+                        propuesta=None,
+                    )
+
                 return ResultadoConversacion(
                     tipo="pregunta",
-                    mensaje=respuesta.texto or _RESPUESTA_VACIA,
+                    mensaje=limpiar_markdown(respuesta.texto) or _RESPUESTA_VACIA,
                     borrador=borrador,
                     turnos=turnos_nuevos
                     + [{"role": "assistant", "content": respuesta.texto or ""}],
@@ -238,7 +289,7 @@ class ServicioConversacion:
             if propuesta:
                 return ResultadoConversacion(
                     tipo="propuesta",
-                    mensaje=respuesta.texto,
+                    mensaje=limpiar_markdown(respuesta.texto),
                     borrador=borrador,
                     turnos=turnos_nuevos,
                     propuesta=propuesta,
