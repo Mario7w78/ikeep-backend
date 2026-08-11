@@ -14,7 +14,7 @@ entonces este servicio actua.
 """
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from domain.entities.user_activity import ActividadUsuario
@@ -44,6 +44,10 @@ class ResultadoAplicar:
     recomendaciones: list[Any]
     tareas_omitidas: list[Any]
     actividades_programadas: list[dict[str, Any]]
+    # Las actividades tal como quedaron. Van en la misma respuesta porque el
+    # servicio ya las tiene en memoria: pedirlas aparte convertiria en dos
+    # viajes lo que existe justamente para ser uno.
+    actividades: list[ActividadUsuario] = field(default_factory=list)
 
 
 class Repositorios(Protocol):
@@ -220,6 +224,7 @@ def _regenerar_y_guardar(
         actividades_programadas=[
             _a_actividad_programada(b, por_id) for b in resultado.bloques
         ],
+        actividades=actividades,
     )
 
     repos.guardar_horario(aplicado)

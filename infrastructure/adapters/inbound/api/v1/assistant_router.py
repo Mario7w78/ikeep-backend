@@ -27,6 +27,7 @@ from infrastructure.adapters.inbound.api.auth import (
 from infrastructure.adapters.inbound.api.mappers import solicitud_to_domain
 from infrastructure.adapters.inbound.api.v1.activities_router import (
     _a_dominio,
+    _a_respuesta,
     get_access_token,
 )
 from infrastructure.adapters.outbound.assistant.data_source import (
@@ -44,7 +45,7 @@ from infrastructure.adapters.outbound.supabase.user_activity_repository import (
 from infrastructure.config.container import ApplicationContainer
 from schemas.assistant import Borrador
 from schemas.schedule_request import SolicitudHorario
-from schemas.user_activity import ActivityPayload
+from schemas.user_activity import ActivityPayload, ActivityResponse
 
 router = APIRouter(prefix="/api/v1/asistente", tags=["Asistente"])
 
@@ -167,6 +168,8 @@ class AplicarResponse(BaseModel):
     recomendaciones: list[Any] = Field(default_factory=list)
     tareas_omitidas: list[Any] = Field(default_factory=list)
     scheduled_activities: list[dict[str, Any]] = Field(default_factory=list)
+    # Evita un GET extra despues de aplicar: el servidor ya las tiene.
+    actividades: list[ActivityResponse] = Field(default_factory=list)
 
 
 def get_apply_repos_factory():
@@ -273,4 +276,5 @@ def aplicar_propuesta(
         recomendaciones=resultado.recomendaciones,
         tareas_omitidas=resultado.tareas_omitidas,
         scheduled_activities=resultado.actividades_programadas,
+        actividades=[_a_respuesta(a) for a in resultado.actividades],
     )

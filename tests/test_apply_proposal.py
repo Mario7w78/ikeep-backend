@@ -191,3 +191,14 @@ class TestCompensacion:
 
         with pytest.raises(RuntimeError, match="el solver no pudo"):
             aplicar(repos, tipo="regenerar")
+
+
+class TestUnSoloViaje:
+    def test_devuelve_las_actividades_para_no_pedirlas_de_nuevo(self):
+        # Sin esto el cliente tendria que hacer un GET despues de aplicar, y
+        # el endpoint existe justamente para que sea una sola llamada.
+        repos = ReposFalsos()
+
+        resultado = aplicar(repos, tipo="crear", actividad=actividad())
+
+        assert [a.id for a in resultado.actividades] == ["1754000000000"]
