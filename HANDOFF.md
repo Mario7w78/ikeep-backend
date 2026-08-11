@@ -1,6 +1,6 @@
 # Kerotime — Plan de trabajo y traspaso de sesión
 
-> **Documento de traspaso.** Última actualización: 2026-08-03, al final de la Fase 0.
+> **Documento de traspaso.** Última actualización: 2026-08-11.
 > Para retomar en otra máquina, lee las secciones **Estado actual** y **Puesta en marcha**
 > antes que nada, y sigue en **Fase 1**.
 
@@ -481,3 +481,75 @@ El aserto que hoy fallaría siempre:
 | 7 | Fases 5 y 8 — limpieza y pulido | Continuo |
 
 Si solo pudieras hacer cuatro cosas: **turnos verbatim con `actualizar_borrador`** · **agenda en JSON con ids** · **un solo eje de decisión en el wizard** · **marcar actividades como completadas**.
+
+---
+
+# ESTADO AL 2026-08-11
+
+| Fase | Estado | Nota |
+|---|---|---|
+| 0 — Higiene | ✅ | |
+| 0.5 — El backend manda sobre los datos | ✅ | No estaba en el plan original |
+| 1 — Motor conversacional | ✅ | 12 conversaciones doradas |
+| 2 — Cliente del asistente | ✅ | `USA_ASISTENTE_V2` encendido |
+| 3 — Casos de uso y descubrimiento | ✅ salvo `AgendaAnswerCard` | Ver abajo |
+| 4 — Rediseño del wizard | ✅ | Los 7 principios; 4 pasos → 2 |
+| 5 — Corte y limpieza | 🟡 parcial | Solo lo seguro. Ver abajo |
+| 6 — Ciclo de recompensa | 🟡 el núcleo | Completar, racha y progreso |
+| 7 — Mascota | ⏸️ congelada | Migración a Rive, decisión del usuario |
+| 8 — Atractivo visual | 🟡 los cimientos | Tokens y arreglo del tema |
+
+## Lo que queda, y por qué
+
+**`AgendaAnswerCard` (Fase 3)** — no se puede construir con el contrato de hoy:
+`ConversarResponse` devuelve texto, no una agenda estructurada. Haría falta que
+`consultar_agenda` suba su resultado a la respuesta. Mientras tanto el
+asistente contesta en prosa, que funciona.
+
+**Corte del asistente viejo (Fase 5)** — el plan lo condiciona a "Fase 3
+validada en dispositivo", y eso no pasó. Quitar el flag ahora dejaría sin
+camino de vuelta. Lo seguro sí se hizo: mapper y paquete de persistencia
+muertos, y los 15 errores de `tsc` bajaron a **0**.
+
+**Fase 6** — el núcleo está: tabla `activity_completions`, endpoints de
+`/api/v1/logros`, racha con sus reglas de borde, progreso del día y la casilla
+en Home. Faltan confeti, notificaciones de re-enganche y rescatar `StatsView`.
+
+Sobre el plan original: pedía un campo `completed_at` en `activities`. **No
+sirve** — una actividad es una definición recurrente, así que marcarla el
+martes la dejaría completada para siempre y el jueves no habría nada que
+completar. Se hizo con una fila por (actividad, día), que es lo que además
+permite calcular la racha.
+
+**Fase 8** — están los cimientos: `theme/tokens.ts` y la eliminación del objeto
+`Theme` estático que se congelaba en el preset por defecto. Falta migrar los 95
+hex sueltos, el tema claro de verdad, la fuente custom y el movimiento — esto
+último espera a que entre Reanimated con Rive.
+
+## Hallazgos que no estaban en el plan
+
+**Las horas viajan en UTC pero significan local.** Los turnos se guardan como
+texto ISO; el cliente los lee con `getHours()`, que da hora local, así que el
+ciclo cierra mientras todo pase por el teléfono. En cuanto el servidor los lee,
+son cinco horas de corrimiento en UTC-5. Por eso `/aplicar` y `/logros` exigen
+la fecha o el desfase del cliente en vez de suponerlos. `GET /energia/hoy`
+sigue con el bug, usando medianoche UTC.
+
+**El modelo afirmaba haber hecho cosas que no hizo.** Nada se guarda hasta que
+el usuario confirma una propuesta, así que "quedó actualizada" en un turno sin
+propuesta es falso por construcción. Se detecta y se corrige en código
+(`domain/services/assistant/text.py`), no en el prompt — el prompt ya prohibía
+markdown y el modelo lo escribía igual.
+
+**El ejecutor era el frontend.** Confirmar en el chat disparaba tres viajes de
+red y compensaba a mano en un store de Zustand. Ahora hay
+`POST /api/v1/asistente/aplicar`, detrás de `USA_APLICAR_EN_BACKEND` (apagado).
+
+## Pendiente fuera del código
+
+- Aplicar la migración `20260811090000_activity_completions.sql` en Supabase.
+- Cronjob a `/health` cada 10 min (arranque en frío medido: **51,3 s**).
+- Encender `USA_APLICAR_EN_BACKEND` tras probar en dispositivo.
+- Medir Cerebras y Groq con las conversaciones doradas: el orden de failover
+  sigue sin justificarse con datos.
+- Diagnosticar el 500 de `PUT /api/v1/horario` (falta la línea del log).
