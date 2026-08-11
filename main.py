@@ -8,6 +8,9 @@ from infrastructure.config.settings import get_settings
 from infrastructure.adapters.inbound.api.v1.health_router import (
     router as health_router,
 )
+from infrastructure.adapters.inbound.api.v1.rewards_router import (
+    router as rewards_router,
+)
 from infrastructure.adapters.inbound.api.v1.reschedule_router import (
     router as replanificar_router,
 )
@@ -104,6 +107,7 @@ def create_app() -> FastAPI:
     app.include_router(profile_router)
     app.include_router(stored_schedule_router)
     app.include_router(assistant_router)
+    app.include_router(rewards_router)
     app.include_router(health_router)
 
     _check_schema_on_startup()
