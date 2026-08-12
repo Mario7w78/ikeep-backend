@@ -553,3 +553,33 @@ red y compensaba a mano en un store de Zustand. Ahora hay
 - Medir Cerebras y Groq con las conversaciones doradas: el orden de failover
   sigue sin justificarse con datos.
 - Diagnosticar el 500 de `PUT /api/v1/horario` (falta la línea del log).
+
+---
+
+# PARA MÁS ADELANTE — Calendario con fechas reales
+
+Anotado el 2026-08-12. No es una pantalla: es un cambio en cómo la app
+entiende el tiempo, y conviene decidirlo antes de construir nada encima.
+
+**Hoy el horario no tiene fechas.** Guarda día de la semana (`dia: 0–6`,
+`day: DayOfWeek`) y esa semana se repite indefinidamente. Es una plantilla.
+
+Lo que eso impide:
+
+- **Eventos únicos.** Un parcial el 12 de noviembre no se puede representar:
+  todo lo que existe se repite cada semana.
+- **Excepciones.** "Este martes no hay clase" no tiene dónde vivir. Es lo que
+  más pide un estudiante y lo más caro de agregar después.
+- **Ver el historial en contexto.** `activity_completions.fecha` **sí** guarda
+  fecha real. Ya hay asimetría: los completados saben de fechas y el horario
+  no. Hoy conviven porque nadie los cruza.
+- **Fechas límite.** `deadline` existe en el modelo y no se muestra en ningún
+  lado. Es media implementación ya hecha.
+
+Antes de encararlo hay que decidir si el horario pasa a tener instancias
+fechadas (una fila por ocurrencia) o si se mantiene la plantilla y las fechas
+se derivan al vuelo con una tabla de excepciones aparte. La segunda es más
+barata y la primera es la que aguanta a futuro.
+
+El plan de enganche emocional que acompaña a esto está en el artefacto
+publicado el 2026-08-12 y en `Kerotime-plan-enganche.pdf`.
