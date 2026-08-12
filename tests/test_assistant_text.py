@@ -2,7 +2,11 @@
 
 import pytest
 
-from domain.services.assistant.text import afirma_haber_actuado, limpiar_markdown
+from domain.services.assistant.text import (
+    afirma_haber_actuado,
+    invita_a_confirmar,
+    limpiar_markdown,
+)
 
 
 class TestLimpiarMarkdown:
@@ -61,3 +65,37 @@ class TestAfirmaHaberActuado:
 
     def test_un_texto_vacio_no_rompe(self):
         assert afirma_haber_actuado(None) is False
+
+
+class TestInvitaAConfirmar:
+    """La unica forma de confirmar es el boton de la tarjeta.
+
+    Sin propuesta, pedir confirmacion deja al usuario escribiendo "Confirmo"
+    contra algo que no escucha. Paso en una conversacion real.
+    """
+
+    @pytest.mark.parametrize(
+        "texto",
+        [
+            "La clase de programacion movil, la creo en cuanto me confirmes.",
+            "¿Quieres que la cree con estos datos?",
+            "Confírmame y la agrego.",
+            "¿Te parece bien así?",
+        ],
+    )
+    def test_detecta_la_invitacion(self, texto):
+        assert invita_a_confirmar(texto) is True
+
+    @pytest.mark.parametrize(
+        "texto",
+        [
+            "¿Cuánto dura la clase, en minutos?",
+            "¿Qué días la tienes?",
+            "La clase dura 4 horas y su horario es flexible.",
+        ],
+    )
+    def test_una_pregunta_normal_no_lo_es(self, texto):
+        assert invita_a_confirmar(texto) is False
+
+    def test_un_texto_vacio_no_rompe(self):
+        assert invita_a_confirmar(None) is False

@@ -29,7 +29,11 @@ from domain.services.assistant.budget import podar_turnos
 from domain.services.assistant.context_builder import BloqueAgenda, construir_contexto
 from domain.services.assistant.draft import aplicar_patch
 from domain.services.assistant.system_prompt import SYSTEM_PROMPT
-from domain.services.assistant.text import afirma_haber_actuado, limpiar_markdown
+from domain.services.assistant.text import (
+    afirma_haber_actuado,
+    invita_a_confirmar,
+    limpiar_markdown,
+)
 from domain.services.assistant.tools import (
     TOOLS_DE_LECTURA,
     TOOLS_DE_PROPUESTA,
@@ -80,6 +84,14 @@ _CORRECCION = (
     "propuesta. Si el borrador esta completo, llama a proponer_actividad "
     "ahora. Si falta algo, preguntalo. Nunca digas que algo quedo creado, "
     "guardado, actualizado o eliminado."
+)
+
+# Lo que se le dice cuando pide una confirmacion sin haber propuesto nada.
+_SIN_PROPUESTA = (
+    "Pediste una confirmacion pero no llamaste a ninguna herramienta de "
+    "propuesta, asi que el usuario no tiene nada que confirmar. Si el "
+    "borrador esta completo, llama a proponer_actividad ahora. Si falta "
+    "algo, preguntalo en vez de pedir confirmacion."
 )
 
 # Lo que ve el usuario si el modelo insiste en mentir.
@@ -248,6 +260,18 @@ class ServicioConversacion:
                 # algo quedo creado o actualizado es falso siempre. No es un
                 # problema de estilo: el usuario cierra el chat creyendo que
                 # su horario cambio, y no cambio.
+                # Pedir confirmacion sin propuesta es un callejon sin
+                # salida: el unico boton que confirma es el de la tarjeta, y
+                # no existe. El usuario escribe "Confirmo" y no pasa nada.
+                if invita_a_confirmar(respuesta.texto) and not ya_corregi:
+                    ya_corregi = True
+                    logger.warning("El modelo pidio confirmar sin proponer nada.")
+                    turnos_nuevos.append(
+                        {"role": "assistant", "content": respuesta.texto or ""}
+                    )
+                    turnos_nuevos.append({"role": "system", "content": _SIN_PROPUESTA})
+                    continue
+
                 if afirma_haber_actuado(respuesta.texto):
                     if not ya_corregi:
                         ya_corregi = True

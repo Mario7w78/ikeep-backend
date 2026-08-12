@@ -57,13 +57,25 @@ def _inferir_lo_deducible(borrador: Borrador) -> Borrador:
     modelo que ademas de entender saque la conclusion es delegar logica en
     algo probabilistico, teniendo la logica a mano.
 
-    Ninguna pisa una decision explicita: solo completan lo que quedo vacio.
+    Casi ninguna pisa una decision explicita: completan lo que quedo vacio.
+    La excepcion esta abajo, y esta justificada ahi.
     """
     cambios = {}
 
     if borrador.schedule:
-        # Dar dia y hora concretos ES la definicion de actividad fija.
-        if borrador.is_fixed is None:
+        # Dar dia y hora concretos ES la definicion de actividad fija, y esto
+        # SI pisa un `is_fixed=False` anterior.
+        #
+        # Caso real: "va a variar, son martes y sabados" y a continuacion "el
+        # martes es de 8 a 10 de la noche y el sabado de 10 a 1". El usuario
+        # no se contradice —precisa—, pero el borrador se quedaba con lo vago
+        # y proponia una actividad flexible de un solo dia, perdiendo el
+        # sabado entero.
+        #
+        # Un borrador flexible CON horario concreto es incoherente de todos
+        # modos: lo flexible se expresa con ventana preferida y duracion, no
+        # con bloques. Entre las dos frases, la especifica es la que manda.
+        if borrador.is_fixed is not True:
             cambios["is_fixed"] = True
         # Y la duracion es el largo del bloque: pedirla aparte es pedir dos
         # veces el mismo dato, con la posibilidad de que se contradigan.

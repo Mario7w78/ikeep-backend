@@ -20,7 +20,7 @@ from domain.services.assistant.conversation import (
     FuenteDeDatos,
     ServicioConversacion,
 )
-from schemas.assistant import Borrador
+from schemas.assistant import BloqueHorario, Borrador
 
 AHORA = datetime(2026, 8, 3, 14, 30, tzinfo=timezone.utc)
 
@@ -560,14 +560,16 @@ class TestNoAfirmarLoQueNoHizo:
         assert "Todavía no guardé nada" in resultado.mensaje
         assert resultado.propuesta is None
 
-    def test_una_propuesta_si_puede_hablar_en_futuro(self):
-        modelo = ModeloGuionado(texto("Voy a crearla en cuanto me confirmes."))
+    def test_el_futuro_no_cuenta_como_afirmacion(self):
+        # Hablar de lo que va a pasar es legitimo; lo que no se puede es dar
+        # por hecho algo que no ocurrio.
+        modelo = ModeloGuionado(texto("Cuando tenga los dias, la agrego."))
 
         resultado = servicio(modelo).responder(
             mensaje="dale", borrador=Borrador(), turnos=[], ahora=AHORA
         )
 
-        assert resultado.mensaje == "Voy a crearla en cuanto me confirmes."
+        assert resultado.mensaje == "Cuando tenga los dias, la agrego."
 
 
 class TestSinMarkdown:
@@ -595,3 +597,55 @@ class TestSinMarkdown:
         )
 
         assert resultado.turnos[-1]["content"] == "**PEPE**"
+
+
+class TestNoPedirConfirmacionSinProponer:
+    """El unico boton que confirma es el de la tarjeta de propuesta.
+
+    Caso real: el modelo dijo "la creo en cuanto me confirmes" sin llamar a
+    proponer_actividad. El usuario escribio "Confirmo" y el turno murio.
+    """
+
+    def test_se_le_corrige_para_que_proponga(self):
+        # El borrador ya esta completo: lo unico que faltaba era que el modelo
+        # llamara a la herramienta en vez de prometer que lo haria.
+        completo = Borrador(
+            name="Programacion movil",
+            activity_type="clase",
+            is_fixed=True,
+            schedule=[
+                BloqueHorario(day="Martes", start_time=1200, end_time=1320),
+                BloqueHorario(day="Sabado", start_time=600, end_time=780),
+            ],
+        )
+        modelo = ModeloGuionado(
+            texto("La clase de programacion movil, la creo en cuanto me confirmes."),
+            tool("proponer_actividad"),
+        )
+
+        resultado = servicio(modelo).responder(
+            mensaje="martes de 8 a 10", borrador=completo, turnos=[], ahora=AHORA
+        )
+
+        assert resultado.tipo == "propuesta"
+
+    def test_la_correccion_le_explica_por_que(self):
+        modelo = ModeloGuionado(texto("¿Quieres que la cree?"), texto("¿Que dias?"))
+
+        servicio(modelo).responder(
+            mensaje="dale", borrador=Borrador(), turnos=[], ahora=AHORA
+        )
+
+        correccion = modelo.llamadas[1][-1]
+        assert correccion["role"] == "system"
+        assert "no tiene nada que confirmar" in correccion["content"]
+
+    def test_una_pregunta_normal_pasa_sin_tocar(self):
+        modelo = ModeloGuionado(texto("¿Cuántos minutos dura?"))
+
+        resultado = servicio(modelo).responder(
+            mensaje="hola", borrador=Borrador(), turnos=[], ahora=AHORA
+        )
+
+        assert resultado.mensaje == "¿Cuántos minutos dura?"
+        assert len(modelo.llamadas) == 1

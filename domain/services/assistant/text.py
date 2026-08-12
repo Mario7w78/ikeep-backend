@@ -82,3 +82,27 @@ def afirma_haber_actuado(texto: str | None) -> bool:
     if not texto:
         return False
     return any(patron.search(texto) for patron in _AFIRMACIONES)
+
+
+# Frases que piden una confirmacion que el usuario no puede dar.
+#
+# La unica forma de confirmar es el boton de la tarjeta de propuesta. Si el
+# modelo dice "la creo en cuanto me confirmes" y no llamo a proponer_actividad,
+# no hay nada que tocar: el usuario escribe "Confirmo" y no pasa nada.
+_INVITACIONES = (
+    re.compile(r"\bconf[íi]rm|confirm(a|as|ame|arme|es|e|arlo|arla)\b", re.IGNORECASE),
+    re.compile(r"\bquieres que la\s+\w+", re.IGNORECASE),
+    re.compile(r"\bte parece\b", re.IGNORECASE),
+    re.compile(r"\bla creo\b", re.IGNORECASE),
+)
+
+
+def invita_a_confirmar(texto: str | None) -> bool:
+    """Pide el texto una confirmacion.
+
+    Solo importa cuando el turno no lleva propuesta: ahi la invitacion es un
+    callejon sin salida, porque el boton que la respondería no existe.
+    """
+    if not texto:
+        return False
+    return any(patron.search(texto) for patron in _INVITACIONES)

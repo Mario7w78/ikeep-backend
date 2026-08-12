@@ -270,8 +270,14 @@ class TestInferencia:
 
         assert borrador.is_fixed is True
 
-    def test_no_pisa_una_decision_explicita(self):
-        """Si el usuario dijo que es flexible, un horario no lo contradice."""
+    def test_un_horario_concreto_si_pisa_un_flexible_anterior(self):
+        """Este test decia lo contrario, y esa regla rompio una conversacion real.
+
+        Un borrador flexible CON bloques concretos es incoherente: lo flexible
+        se expresa con ventana preferida y duracion. Cuando el usuario dice
+        "va a variar" y despues da las horas exactas, no se contradice —
+        precisa—, y la frase especifica es la que manda.
+        """
         borrador = aplicar_patch(Borrador(), BorradorPatch(is_fixed=False))
 
         resultado = aplicar_patch(
@@ -279,7 +285,7 @@ class TestInferencia:
             BorradorPatch(schedule=[BloqueHorario(day="Martes", start_time=600, end_time=720)]),
         )
 
-        assert resultado.is_fixed is False
+        assert resultado.is_fixed is True
 
     def test_sin_horario_no_infiere_nada(self):
         borrador = aplicar_patch(Borrador(), BorradorPatch(name="Calculo"))
@@ -370,3 +376,43 @@ class TestInferenciaDeFlexible:
         )
 
         assert resultado.is_fixed is True
+
+
+class TestUnHorarioConcretoMandaSobreLoVago:
+    """Dar dia y hora concretos ES la definicion de actividad fija.
+
+    Caso real: "va a variar, son martes y sabados" y despues "el martes es de
+    8 a 10 de la noche y el sabado de 10 a 1". El usuario no se contradice:
+    precisa. El borrador se quedaba con `is_fixed=False` de la primera frase y
+    proponia una actividad flexible de un solo dia, perdiendo el sabado.
+    """
+
+    def _con_horario(self, is_fixed):
+        return aplicar_patch(
+            Borrador(name="Programacion movil", is_fixed=is_fixed),
+            BorradorPatch(
+                schedule=[
+                    BloqueHorario(day="Martes", start_time=1200, end_time=1320),
+                    BloqueHorario(day="Sabado", start_time=600, end_time=780),
+                ]
+            ),
+        )
+
+    def test_un_horario_concreto_vuelve_fija_la_actividad(self):
+        assert self._con_horario(is_fixed=False).is_fixed is True
+
+    def test_tambien_cuando_no_se_habia_dicho_nada(self):
+        assert self._con_horario(is_fixed=None).is_fixed is True
+
+    def test_no_se_pierde_ningun_dia(self):
+        borrador = self._con_horario(is_fixed=False)
+
+        assert [b.day for b in borrador.schedule] == ["Martes", "Sabado"]
+
+    def test_sin_horario_lo_que_dijo_el_usuario_se_respeta(self):
+        borrador = aplicar_patch(
+            Borrador(name="Estudiar", is_fixed=False),
+            BorradorPatch(duracion_minutos=120),
+        )
+
+        assert borrador.is_fixed is False
