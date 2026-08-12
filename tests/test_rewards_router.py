@@ -175,3 +175,33 @@ class TestResumen:
         cuerpo = client.get(f"/api/v1/logros/resumen?fecha={MARTES}").json()
 
         assert "racha" in cuerpo and "progreso" in cuerpo
+
+
+class TestHistorial:
+    def test_devuelve_los_dias_con_algo_hecho(self, client, completados):
+        # Van en la misma respuesta que la racha porque el calculo de la
+        # racha ya los trajo: pedirlos aparte repetiria la consulta.
+        completados.dias_con_actividad.return_value = {
+            date(2026, 8, 10),
+            date(2026, 8, 11),
+        }
+
+        cuerpo = client.get(f"/api/v1/logros/resumen?fecha={MARTES}").json()
+
+        assert cuerpo["dias_completados"] == ["2026-08-10", "2026-08-11"]
+
+    def test_vienen_ordenados(self, client, completados):
+        completados.dias_con_actividad.return_value = {
+            date(2026, 8, 11),
+            date(2026, 8, 1),
+            date(2026, 8, 5),
+        }
+
+        cuerpo = client.get(f"/api/v1/logros/resumen?fecha={MARTES}").json()
+
+        assert cuerpo["dias_completados"] == ["2026-08-01", "2026-08-05", "2026-08-11"]
+
+    def test_sin_historial_es_una_lista_vacia(self, client):
+        cuerpo = client.get(f"/api/v1/logros/resumen?fecha={MARTES}").json()
+
+        assert cuerpo["dias_completados"] == []

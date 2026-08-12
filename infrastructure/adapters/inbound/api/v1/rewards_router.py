@@ -66,6 +66,10 @@ class ProgresoResponse(BaseModel):
 class ResumenResponse(BaseModel):
     racha: RachaResponse
     progreso: ProgresoResponse
+    #: Los dias con al menos un completado, para dibujar el historial. Van en
+    #: esta respuesta porque el calculo de la racha ya los trajo: pedirlos
+    #: aparte seria repetir la misma consulta.
+    dias_completados: list[date] = Field(default_factory=list)
 
 
 @router.post("/completar", status_code=status.HTTP_204_NO_CONTENT)
@@ -121,6 +125,8 @@ def resumen(
             terminado=progreso.terminado,
             completados_ids=completados,
         ),
+        # Ordenados: el cliente los dibuja en una linea de tiempo.
+        dias_completados=sorted(dias),
     )
 
 
