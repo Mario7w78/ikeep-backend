@@ -32,5 +32,10 @@ class EnergiaRepositoryPort(ABC):
         """Los ultimos `dias` de historial, del mas reciente al mas viejo."""
 
     @abstractmethod
-    def reported_today(self, access_token: str) -> bool:
-        """Si el usuario ya reporto hoy."""
+    def reported_today(self, access_token: str, desfase_utc_minutos: int = 0) -> bool:
+        """Si el usuario ya reporto hoy, en el dia del usuario.
+
+        El desfase lo manda el cliente porque el servidor no puede saberlo.
+        Sin el, "hoy" es el dia UTC: para alguien en UTC-5 el dia cambiaria a
+        las 19:00 locales.
+        """

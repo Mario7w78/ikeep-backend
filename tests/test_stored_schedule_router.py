@@ -172,3 +172,35 @@ class TestEnergia:
 
         with TestClient(app) as c:
             assert c.get("/api/v1/energia").status_code == 401
+
+
+class TestElDiaDelUsuario:
+    """"Hoy" es una afirmacion sobre el dia de quien pregunta.
+
+    Con medianoche UTC, alguien en Lima que reporta su energia a las 20:00 del
+    lunes queda registrado el martes: a las 19:00 locales el servidor ya cree
+    que cambio el dia. Es el mismo error que ya se corrigio en /aplicar y en
+    /logros, y el comentario del repositorio lo anticipaba —"el dia que
+    importe, viaja como parametro".
+    """
+
+    def test_el_desfase_del_cliente_llega_al_repositorio(self, client, energia):
+        energia.reported_today.return_value = False
+
+        client.get("/api/v1/energia/hoy?desfase_utc_minutos=-300")
+
+        energia.reported_today.assert_called_once_with(TOKEN, -300)
+
+    def test_sin_desfase_se_asume_UTC(self, client, energia):
+        # Compatible con clientes viejos que no lo mandan.
+        energia.reported_today.return_value = False
+
+        client.get("/api/v1/energia/hoy")
+
+        energia.reported_today.assert_called_once_with(TOKEN, 0)
+
+    def test_un_desfase_imposible_se_rechaza(self, client):
+        assert (
+            client.get("/api/v1/energia/hoy?desfase_utc_minutos=5000").status_code
+            == 422
+        )

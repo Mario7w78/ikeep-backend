@@ -111,12 +111,16 @@ class SupabaseEnergiaRepository(EnergiaRepositoryPort):
         filas = respuesta.data or []
         return [energia_de_fila(f, str(f.get("user_id", ""))) for f in filas]
 
-    def reported_today(self, access_token: str) -> bool:
-        # Desde la medianoche UTC. Es una aproximacion conocida: para alguien
-        # en UTC-5 el dia "cambia" a las 19:00 locales. Se acepta porque el
-        # backend no conoce la zona del usuario; el dia que importe, viaja
-        # como parametro.
-        inicio = _ahora().replace(hour=0, minute=0, second=0, microsecond=0)
+    def reported_today(self, access_token: str, desfase_utc_minutos: int = 0) -> bool:
+        # Desde la medianoche DEL USUARIO, no la UTC.
+        #
+        # Se calcula corriendo el reloj al huso del cliente, truncando ahi el
+        # dia, y volviendo a UTC para comparar contra la columna. Hacerlo al
+        # reves —truncar en UTC y despues correr— daria la medianoche de otro
+        # dia cuando el desfase cruza la medianoche.
+        desplazamiento = timedelta(minutes=desfase_utc_minutos)
+        local = _ahora() + desplazamiento
+        inicio = local.replace(hour=0, minute=0, second=0, microsecond=0) - desplazamiento
         respuesta = (
             client_for_user(access_token)
             .table(TABLA_ENERGIA)

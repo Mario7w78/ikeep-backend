@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import Query, APIRouter, Depends, Query, status
 
 from domain.entities.energy_record import (
     DIAS_DE_HISTORIAL_POR_DEFECTO,
@@ -144,11 +144,19 @@ def registrar_energia(
 
 @router.get("/energia/hoy", response_model=EnergyTodayResponse)
 def reporto_energia_hoy(
+    desfase_utc_minutos: int = Query(default=0, ge=-840, le=840),
     user: AuthenticatedUser = Depends(get_current_user),
     token: str = Depends(get_access_token),
     repo: EnergiaRepositoryPort = Depends(get_energia_repository),
 ):
-    return EnergyTodayResponse(reportado=repo.reported_today(token))
+    """Si el usuario ya reporto su energia hoy, en SU dia.
+
+    El desfase viene del cliente: el servidor no puede saber su huso. Sin el
+    se asume UTC, que es lo que hacian los clientes viejos.
+    """
+    return EnergyTodayResponse(
+        reportado=repo.reported_today(token, desfase_utc_minutos)
+    )
 
 
 def _dia_semana(momento: str) -> int:
