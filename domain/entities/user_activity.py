@@ -31,3 +31,6 @@ class ActividadUsuario:
     dia_desde: int | None = None
     dia_hasta: int | None = None
     es_ancla: bool = False
+    #: Si esta puesta, la actividad ocurre una sola vez ese dia y los dias de
+    #: la semana no aplican. Es lo que permite representar un parcial.
+    fecha_unica: str | None = None

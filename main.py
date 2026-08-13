@@ -5,6 +5,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from infrastructure.config.container import ApplicationContainer
 from infrastructure.config.settings import get_settings
+from infrastructure.adapters.inbound.api.v1.calendar_router import (
+    router as calendar_router,
+)
 from infrastructure.adapters.inbound.api.v1.health_router import (
     router as health_router,
 )
@@ -108,6 +111,7 @@ def create_app() -> FastAPI:
     app.include_router(stored_schedule_router)
     app.include_router(assistant_router)
     app.include_router(rewards_router)
+    app.include_router(calendar_router)
     app.include_router(health_router)
 
     _check_schema_on_startup()

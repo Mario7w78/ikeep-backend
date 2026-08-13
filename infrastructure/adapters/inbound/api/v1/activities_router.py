@@ -81,6 +81,7 @@ def _a_respuesta(actividad: ActividadUsuario) -> ActivityResponse:
         day_from=actividad.dia_desde,
         day_to=actividad.dia_hasta,
         is_anchor=actividad.es_ancla,
+        fecha_unica=actividad.fecha_unica,
     )
 
 

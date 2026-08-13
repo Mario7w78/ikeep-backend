@@ -9,6 +9,7 @@ y no una traduccion del dominio. El cliente existe desde antes que estos
 endpoints; el mapeo al dominio vive en el router, que es su lugar.
 """
 
+from datetime import date
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -32,6 +33,8 @@ class ActivityPayload(BaseModel):
     day_from: int | None = Field(default=None, ge=0, le=6)
     day_to: int | None = Field(default=None, ge=0, le=6)
     is_anchor: bool = False
+    #: Si esta puesta, la actividad ocurre una sola vez ese dia.
+    fecha_unica: date | None = None
 
 
 class ActivityResponse(ActivityPayload):

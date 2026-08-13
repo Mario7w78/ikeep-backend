@@ -107,7 +107,11 @@ class TestListar:
         respuesta = client.get("/api/v1/actividades")
 
         assert respuesta.status_code == 200
-        assert respuesta.json() == [{**PAYLOAD, "user_id": "usuario-1"}]
+        # fecha_unica se agrego con el calendario: null cuando la actividad se
+        # repite, que es el caso de esta.
+        assert respuesta.json() == [
+            {**PAYLOAD, "user_id": "usuario-1", "fecha_unica": None}
+        ]
         repo.list_all.assert_called_once_with(TOKEN)
 
     def test_sin_actividades_devuelve_lista_vacia(self, client, repo):
