@@ -112,6 +112,7 @@ def reschedule_to_domain(dto: SolicitudReplanDTO) -> SolicitudReplanDomain:
                     hora_inicio=b.hora_inicio,
                     hora_fin=b.hora_fin,
                     ubicacion_id=b.ubicacion_id,
+                    es_fija=b.es_fija,
                 )
                 for b in dto.horario_actual.bloques
             ],

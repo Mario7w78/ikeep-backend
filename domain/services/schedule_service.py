@@ -947,6 +947,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
                     hora_inicio=s_val,
                     hora_fin=e_val,
                     ubicacion_id=finfo["loc"],
+                    es_fija=True,
                 )
             )
 

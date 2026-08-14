@@ -1,5 +1,4 @@
 from domain.entities.activity import Actividad
-from domain.entities.enums import TipoActividad
 from domain.entities.reschedule_request import SolicitudReplanificacion
 from domain.entities.schedule_request import SolicitudHorario
 from domain.entities.schedule_response import RespuestaHorario
@@ -33,7 +32,7 @@ class RescheduleService(AbstractRescheduleService):
         seen_flex: set[str] = set()
 
         for b in request.horario_actual.bloques:
-            if b.tipo == TipoActividad.CLASE:
+            if b.es_fija_efectiva:
                 if b.id_actividad == affected_id:
                     continue
                 actividades_fijas.append(self._to_actividad(b))
@@ -44,7 +43,7 @@ class RescheduleService(AbstractRescheduleService):
                     extra = lost if b.id_actividad == affected_id else 0
                     actividades_optimizables.append(self._to_actividad(b, extra))
 
-        if affected and affected.tipo != TipoActividad.CLASE:
+        if affected and not affected.es_fija_efectiva:
             if affected.id_actividad not in seen_flex:
                 actividades_optimizables.append(
                     self._to_actividad(affected, lost)

@@ -34,6 +34,7 @@ def replanificar(
                 hora_inicio=b.hora_inicio,
                 hora_fin=b.hora_fin,
                 ubicacion_id=b.ubicacion_id,
+                es_fija=b.es_fija,
             )
             for b in resultado.bloques
         ],
