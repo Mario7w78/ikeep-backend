@@ -556,10 +556,24 @@ red y compensaba a mano en un store de Zustand. Ahora hay
 
 ---
 
-# PARA MÁS ADELANTE — Calendario con fechas reales
+# CALENDARIO CON FECHAS REALES — hecho el 2026-08-12
 
-Anotado el 2026-08-12. No es una pantalla: es un cambio en cómo la app
-entiende el tiempo, y conviene decidirlo antes de construir nada encima.
+**Resuelto.** Se eligió el modelo de Google Calendar y el de Apple: se guarda
+la regla más las excepciones, y las fechas se derivan al vuelo. La
+alternativa —una fila por repetición— obligaba a elegir hasta cuándo
+materializar y a regenerar todo con cada cambio.
+
+Piezas: `activities.fecha_unica` (eventos únicos), la tabla
+`activity_exceptions` (cancelar/mover), `domain/services/calendar/expansion.py`
+(lógica pura), `GET /api/v1/calendario`, y la vista de mes como tercer modo de
+la pestaña Calendario.
+
+**Pendiente:** el horario que genera el solver sigue siendo semanal. El
+calendario y el horario todavía no se hablan — cruzarlos es una decisión
+aparte, mejor tomada viendo la vista de mes en uso.
+
+Lo que sigue abajo es el diagnóstico original, que se conserva porque explica
+por qué se eligió este modelo.
 
 **Hoy el horario no tiene fechas.** Guarda día de la semana (`dia: 0–6`,
 `day: DayOfWeek`) y esa semana se repite indefinidamente. Es una plantilla.
