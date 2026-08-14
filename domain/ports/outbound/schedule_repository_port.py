@@ -1,3 +1,4 @@
+from datetime import date
 from abc import ABC, abstractmethod
 
 from domain.entities.energy_record import RegistroEnergia
@@ -30,6 +31,20 @@ class EnergiaRepositoryPort(ABC):
     @abstractmethod
     def history(self, access_token: str, dias: int) -> list[RegistroEnergia]:
         """Los ultimos `dias` de historial, del mas reciente al mas viejo."""
+
+    @abstractmethod
+    def dias_con_registro(
+        self, access_token: str, desde: date, desfase_utc_minutos: int = 0
+    ) -> set[date]:
+        """Los dias del usuario en que reporto su energia.
+
+        Es lo que la racha necesita: la racha mide PRESENCIA —que apareciste y
+        dijiste como estabas—, no rendimiento. Una semana de examenes no puede
+        costarte la racha.
+
+        El desfase convierte cada instante guardado al dia del usuario. Sin el,
+        un reporte de las 20:00 en Lima contaria como del dia siguiente.
+        """
 
     @abstractmethod
     def reported_today(self, access_token: str, desfase_utc_minutos: int = 0) -> bool:

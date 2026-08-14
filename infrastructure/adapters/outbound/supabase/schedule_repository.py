@@ -1,6 +1,6 @@
 """Horario guardado e historial de energia sobre PostgREST."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from domain.entities.energy_record import DIAS_DE_RETENCION, RegistroEnergia
@@ -110,6 +110,38 @@ class SupabaseEnergiaRepository(EnergiaRepositoryPort):
         )
         filas = respuesta.data or []
         return [energia_de_fila(f, str(f.get("user_id", ""))) for f in filas]
+
+    def dias_con_registro(
+        self, access_token: str, desde: date, desfase_utc_minutos: int = 0
+    ) -> set[date]:
+        # Se traen los instantes y se convierten aca al dia del usuario. Hacer
+        # el corte en SQL exigiria que Postgres conociera el huso, y el huso
+        # viaja en cada peticion, no en la base.
+        desplazamiento = timedelta(minutes=desfase_utc_minutos)
+        # Se pide desde un dia antes: un reporte de las 23:00 del dia anterior
+        # en un huso adelantado puede caer dentro del rango del usuario.
+        limite = (desde - timedelta(days=1)).isoformat()
+        respuesta = (
+            client_for_user(access_token)
+            .table(TABLA_ENERGIA)
+            .select("timestamp")
+            .gte("timestamp", limite)
+            .execute()
+        )
+
+        dias: set[date] = set()
+        for fila in respuesta.data or []:
+            momento = fila.get("timestamp")
+            if not momento:
+                continue
+            try:
+                instante = datetime.fromisoformat(str(momento).replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            local = (instante + desplazamiento).date()
+            if local >= desde:
+                dias.add(local)
+        return dias
 
     def reported_today(self, access_token: str, desfase_utc_minutos: int = 0) -> bool:
         # Desde la medianoche DEL USUARIO, no la UTC.

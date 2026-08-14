@@ -24,6 +24,9 @@ from infrastructure.adapters.inbound.api.v1.rewards_router import (
     get_completions_repository,
     router,
 )
+from infrastructure.adapters.inbound.api.v1.stored_schedule_router import (
+    get_energia_repository,
+)
 
 USUARIO = AuthenticatedUser(id="usuario-1", email="alguien@ejemplo.com")
 TOKEN = "el-jwt"
@@ -51,6 +54,13 @@ def completados():
 
 
 @pytest.fixture
+def energia():
+    repo = Mock()
+    repo.dias_con_registro.return_value = set()
+    return repo
+
+
+@pytest.fixture
 def actividades():
     repo = Mock()
     repo.list_all.return_value = []
@@ -58,13 +68,14 @@ def actividades():
 
 
 @pytest.fixture
-def client(completados, actividades):
+def client(completados, actividades, energia):
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_current_user] = lambda: USUARIO
     app.dependency_overrides[get_access_token] = lambda: TOKEN
     app.dependency_overrides[get_completions_repository] = lambda: completados
     app.dependency_overrides[get_repository] = lambda: actividades
+    app.dependency_overrides[get_energia_repository] = lambda: energia
 
     with TestClient(app) as c:
         yield c
@@ -149,8 +160,9 @@ class TestResumen:
         assert cuerpo["progreso"]["completados_ids"] == ["act-1"]
         assert cuerpo["progreso"]["terminado"] is True
 
-    def test_la_racha_sale_de_los_dias_con_algo_hecho(self, client, completados):
-        completados.dias_con_actividad.return_value = {
+    def test_la_racha_sale_de_los_dias_en_que_aparecio(self, client, energia):
+        # Presencia, no rendimiento: cuenta los dias en que dijo como estaba.
+        energia.dias_con_registro.return_value = {
             date(2026, 8, 9),
             date(2026, 8, 10),
             date(2026, 8, 11),
@@ -205,3 +217,45 @@ class TestHistorial:
         cuerpo = client.get(f"/api/v1/logros/resumen?fecha={MARTES}").json()
 
         assert cuerpo["dias_completados"] == []
+
+
+class TestLaRachaEsPresencia:
+    """Aparecer y decir como estas, no cumplir.
+
+    Antes contaba dias con al menos un completado, y se rompia justo en la
+    semana de examenes — el momento en que mas importa que la app no castigue.
+    """
+
+    def test_una_semana_sin_completar_nada_conserva_la_racha(self, client, energia, completados):
+        energia.dias_con_registro.return_value = {
+            date(2026, 8, 9), date(2026, 8, 10), date(2026, 8, 11),
+        }
+        completados.dias_con_actividad.return_value = set()   # no hizo nada
+
+        cuerpo = client.get(f"/api/v1/logros/resumen?fecha={MARTES}").json()
+
+        assert cuerpo["racha"]["actual"] == 3
+
+    def test_completar_sin_aparecer_no_da_racha(self, client, energia, completados):
+        # No deberia poder pasar, pero si pasara la racha mide presencia.
+        energia.dias_con_registro.return_value = set()
+        completados.dias_con_actividad.return_value = {date(2026, 8, 10), date(2026, 8, 11)}
+
+        cuerpo = client.get(f"/api/v1/logros/resumen?fecha={MARTES}").json()
+
+        assert cuerpo["racha"]["actual"] == 0
+
+    def test_el_historial_sigue_mostrando_lo_hecho(self, client, energia, completados):
+        # Son dos preguntas distintas y la pantalla muestra las dos.
+        energia.dias_con_registro.return_value = {date(2026, 8, 11)}
+        completados.dias_con_actividad.return_value = {date(2026, 8, 10)}
+
+        cuerpo = client.get(f"/api/v1/logros/resumen?fecha={MARTES}").json()
+
+        assert cuerpo["racha"]["actual"] == 1
+        assert cuerpo["dias_completados"] == ["2026-08-10"]
+
+    def test_el_desfase_del_cliente_llega_a_la_consulta(self, client, energia):
+        client.get(f"/api/v1/logros/resumen?fecha={MARTES}&desfase_utc_minutos=-300")
+
+        assert energia.dias_con_registro.call_args[0][2] == -300
