@@ -21,6 +21,9 @@ class ActivityPayload(BaseModel):
     id: str = Field(min_length=1, max_length=128)
     title: str = Field(min_length=1, max_length=200)
     type: str = Field(min_length=1, max_length=50)
+    #: Uno de los cinco petalos: estudio, trabajo, cuerpo, vinculos, yo.
+    area: str = Field(default="estudio", max_length=20)
+    #: OBSOLETA, ver `area`. Sigue aceptandose para no romper clientes viejos.
     identity: str = Field(default="tarea", max_length=50)
     priority: int = Field(default=3, ge=1, le=5)
     difficulty: str = Field(default="media", max_length=50)

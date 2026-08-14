@@ -24,6 +24,7 @@ FILA = {
     "user_id": "usuario-1",
     "title": "Calculo",
     "type": "fija",
+    "area": "estudio",
     "identity": "clase",
     "priority": 1,
     "difficulty": "alta",
@@ -148,3 +149,39 @@ class TestEscritura:
             repo.delete(TOKEN, "act-1")
 
         tabla.delete.return_value.eq.assert_called_once_with("id", "act-1")
+
+
+class TestAreaDeVida:
+    """De que parte de tu vida es la actividad.
+
+    `identity` no lo sabia: distinguia clase de tarea, que son las dos la
+    misma area. Sin esto no hay forma de mostrar que alguien lleva treinta
+    dias estudiando y tres semanas sin moverse ni ver a nadie.
+    """
+
+    def test_se_lee_de_la_fila(self):
+        actividad = fila_a_dominio({**FILA, "area": "cuerpo"})
+
+        assert actividad.area == "cuerpo"
+
+    def test_una_fila_anterior_a_la_columna_no_tumba_la_lista(self):
+        # La migracion pone un default, pero una respuesta cacheada o una
+        # fila escrita antes puede no traer la clave.
+        sin_area = {k: v for k, v in FILA.items() if k != "area"}
+
+        actividad = fila_a_dominio(sin_area)
+
+        assert actividad.area == "estudio"
+
+    def test_viaja_de_vuelta_al_guardar(self):
+        fila = dominio_a_fila(
+            ActividadUsuario(
+                id="a1",
+                propietario_id="u1",
+                nombre="Correr",
+                tipo="FLEXIBLE",
+                area="cuerpo",
+            )
+        )
+
+        assert fila["area"] == "cuerpo"
