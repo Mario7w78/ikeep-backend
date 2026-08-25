@@ -11,6 +11,15 @@ class ConteosPorArea:
     historico: dict[str, int] = field(default_factory=dict)
     #: Solo la ventana reciente. Es la forma de la flor, y si cambia.
     recientes: dict[str, int] = field(default_factory=dict)
+    #: Dias distintos con al menos una cosa confirmada, desde siempre. Es lo
+    #: que hace crecer al sapo.
+    #:
+    #: DIAS y no cosas: con volumen, alguien que se mata un domingo crece
+    #: igual que alguien que aparecio todos los dias de un mes, y lo que el
+    #: personaje representa es constancia, no productividad. Un dia es un dia,
+    #: hayas hecho una cosa u ocho — y eso protege justo la semana de
+    #: parciales, cuando se hace una sola cosa por dia.
+    dias_con_algo: int = 0
 
 
 class CompletadosRepositoryPort(ABC):
@@ -44,20 +53,14 @@ class CompletadosRepositoryPort(ABC):
         """
 
     @abstractmethod
-    def del_dia(self, access_token: str, fecha: date) -> list[str]:
-        """Los ids HECHOS ese dia.
-
-        Solo los hechos: una ocurrencia marcada como no hecha es una respuesta
-        del usuario, no progreso.
-        """
-
-    @abstractmethod
     def estados_del_dia(self, access_token: str, fecha: date) -> dict[str, str]:
         """Que se dijo de cada ocurrencia de ese dia.
 
-        El cierre del dia lo necesita para no volver a preguntar por lo que ya
-        tiene respuesta, y `del_dia` no alcanza porque ahi las no hechas y las
-        sin resolver se ven igual.
+        Devuelve los estados y no solo los ids hechos porque quien pregunta
+        necesita distinguir tres cosas y no dos: hecha, no hecha, y la
+        ausencia —que es SIN_RESOLVER—. Una lista de hechos deja a las otras
+        dos viendose igual, y con eso el cierre del dia vuelve a preguntar lo
+        que el usuario ya contesto.
         """
 
     @abstractmethod

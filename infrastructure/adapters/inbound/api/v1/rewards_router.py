@@ -98,7 +98,14 @@ class ProgresoResponse(BaseModel):
     total: int
     fraccion: float
     terminado: bool
+    #: Lo que se dijo que SI. Es lo unico que cuenta como progreso.
     completados_ids: list[str]
+    #: Lo que se dijo que NO. Viaja aparte de las hechas porque no es
+    #: progreso, y aparte de la ausencia porque tampoco es "sin resolver":
+    #: sin las dos listas el cliente no puede distinguir "me contestaste que
+    #: no" de "todavia no me contestaste", y termina preguntando de nuevo lo
+    #: que ya tiene respuesta.
+    no_hechas_ids: list[str] = Field(default_factory=list)
 
 
 class EquilibrioResponse(BaseModel):
@@ -121,6 +128,13 @@ class EquilibrioResponse(BaseModel):
     historico: dict[str, int]
     recientes: dict[str, int]
     dias: int
+    #: Dias distintos con algo confirmado, desde siempre. Es lo que hace
+    #: crecer al sapo, y nunca baja.
+    #:
+    #: Viaja el numero crudo y no la etapa: donde estan los umbrales es una
+    #: decision de producto que se va a mover mientras se prueba el arte, y
+    #: moverla no deberia pedir un redespliegue del servidor.
+    dias_con_algo: int
 
 
 class ResumenResponse(BaseModel):
@@ -194,7 +208,8 @@ def cerrar_dia(
                 OrigenCompletado.CIERRE,
             )
 
-    completados = repo.del_dia(token, payload.fecha)
+    estados = repo.estados_del_dia(token, payload.fecha)
+    completados = _con_estado(estados, EstadoCompletado.HECHA)
     total = _cuantas_tocan(actividades_repo.list_all(token), payload.fecha)
     progreso = ProgresoDelDia(completadas=len(completados), total=total)
 
@@ -204,6 +219,7 @@ def cerrar_dia(
         fraccion=progreso.fraccion,
         terminado=progreso.terminado,
         completados_ids=completados,
+        no_hechas_ids=_con_estado(estados, EstadoCompletado.NO_HECHA),
     )
 
 
@@ -234,7 +250,12 @@ def resumen(
     dia estan en la misma pantalla— y separarlos serian dos viajes contra un
     servidor que tarda en despertar.
     """
-    completados = repo.del_dia(token, fecha)
+    # Los estados y no solo los completados: de las mismas filas salen las
+    # dos listas, asi que pedirlas por separado serian dos viajes contra un
+    # servidor que tarda en despertar.
+    estados = repo.estados_del_dia(token, fecha)
+    completados = _con_estado(estados, EstadoCompletado.HECHA)
+    no_hechas = _con_estado(estados, EstadoCompletado.NO_HECHA)
 
     # La racha mide PRESENCIA, no rendimiento: cuenta los dias en que el
     # usuario aparecio y dijo como estaba. Antes contaba dias con al menos un
@@ -261,6 +282,7 @@ def resumen(
             fraccion=progreso.fraccion,
             terminado=progreso.terminado,
             completados_ids=completados,
+            no_hechas_ids=no_hechas,
         ),
         # Ordenados: el cliente los dibuja en una linea de tiempo.
         dias_completados=sorted(dias_con_algo_hecho),
@@ -297,6 +319,7 @@ def equilibrio(
         historico={a: conteos.historico.get(a, 0) for a in _AREAS},
         recientes={a: conteos.recientes.get(a, 0) for a in _AREAS},
         dias=_DIAS_DE_EQUILIBRIO,
+        dias_con_algo=conteos.dias_con_algo,
     )
 
 
@@ -321,6 +344,12 @@ def _cuantas_tocan(actividades, fecha: date) -> int:
         elif indice in indices:
             total += 1
     return total
+
+
+def _con_estado(estados: dict[str, str], estado: EstadoCompletado) -> list[str]:
+    """Los ids que tienen ese estado. Ordenados, para que la respuesta no
+    dependa del orden en que PostgREST devolvio las filas."""
+    return sorted(i for i, e in estados.items() if e == estado.value)
 
 
 def _ids_que_tocan(actividades, fecha: date) -> list[str]:

@@ -71,7 +71,7 @@ def actividad(id_="act-1", dias=(NOMBRE_DEL_DIA,), opcional=False):
 @pytest.fixture
 def completados():
     repo = Mock()
-    repo.del_dia.return_value = []
+    repo.estados_del_dia.return_value = {}
     repo.dias_con_actividad.return_value = set()
     return repo
 
@@ -177,7 +177,7 @@ class TestResumen:
         self, client, completados, actividades
     ):
         actividades.list_all.return_value = [actividad("act-1")]
-        completados.del_dia.return_value = ["act-1"]
+        completados.estados_del_dia.return_value = {"act-1": "hecha"}
 
         cuerpo = client.get(f"/api/v1/logros/resumen?fecha={HOY_ISO}").json()
 
@@ -495,3 +495,121 @@ class TestElEquilibrio:
 
         desde = completados.conteos_por_area.call_args.args[1]
         assert (HOY - desde).days == 90
+
+    def test_devuelve_los_dias_que_hacen_crecer_al_sapo(self, client, completados):
+        completados.conteos_por_area.return_value = ConteosPorArea(
+            historico={"estudio": 30}, recientes={}, dias_con_algo=12
+        )
+
+        cuerpo = client.get(f"/api/v1/logros/equilibrio?fecha={HOY_ISO}").json()
+
+        assert cuerpo["dias_con_algo"] == 12
+
+    def test_el_crecimiento_no_mira_la_ventana(self, client, completados):
+        # La forma de la flor caduca; el crecimiento no. Ver al sapo encoger
+        # porque tuviste una mala semana es el reproche que este diseno evita.
+        completados.conteos_por_area.return_value = ConteosPorArea(
+            historico={"cuerpo": 40}, recientes={}, dias_con_algo=40
+        )
+
+        cuerpo = client.get(f"/api/v1/logros/equilibrio?fecha={HOY_ISO}").json()
+
+        assert cuerpo["dias_con_algo"] == 40
+        assert cuerpo["recientes"]["cuerpo"] == 0
+
+    def test_viaja_el_numero_y_no_la_etapa(self, client, completados):
+        # Donde estan los umbrales se va a mover mientras se prueba el arte.
+        # Si el servidor decidiera la etapa, cada ajuste seria un redespliegue.
+        completados.conteos_por_area.return_value = ConteosPorArea(dias_con_algo=7)
+
+        cuerpo = client.get(f"/api/v1/logros/equilibrio?fecha={HOY_ISO}").json()
+
+        assert "etapa" not in cuerpo
+        assert isinstance(cuerpo["dias_con_algo"], int)
+
+
+class TestNoVolverAPreguntarLoYaContestado:
+    """"No la hice" tiene que llegar al cliente.
+
+    `completados_ids` solo trae las HECHAS, y esta bien: decir la verdad no
+    debe subir el anillo del dia. Pero el cliente calculaba lo que falta
+    responder como "todo lo que no esta en esa lista", asi que una ocurrencia
+    marcada explicitamente como no hecha seguia contando como sin responder y
+    el cierre la volvia a preguntar.
+
+    Volver a preguntar lo ya contestado es la forma mas rapida de ensenarle a
+    alguien a ignorar la pregunta.
+    """
+
+    def test_las_no_hechas_viajan_aparte(self, client, completados, actividades):
+        completados.estados_del_dia.return_value = {
+            "act-1": "hecha",
+            "act-2": "no_hecha",
+        }
+
+        cuerpo = client.get(f"/api/v1/logros/resumen?fecha={HOY_ISO}").json()
+
+        assert cuerpo["progreso"]["completados_ids"] == ["act-1"]
+        assert cuerpo["progreso"]["no_hechas_ids"] == ["act-2"]
+
+    def test_una_no_hecha_no_cuenta_como_progreso(self, client, completados, actividades):
+        # Decir la verdad no puede subir el anillo del dia.
+        actividades.list_all.return_value = [
+            actividad("act-1"), actividad("act-2"),
+        ]
+        completados.estados_del_dia.return_value = {"act-2": "no_hecha"}
+
+        cuerpo = client.get(f"/api/v1/logros/resumen?fecha={HOY_ISO}").json()
+
+        assert cuerpo["progreso"]["completadas"] == 0
+        assert cuerpo["progreso"]["total"] == 2
+
+    def test_sin_resolver_es_no_estar_en_ninguna_de_las_dos(
+        self, client, completados, actividades
+    ):
+        actividades.list_all.return_value = [
+            actividad("act-1"), actividad("act-2"), actividad("act-3"),
+        ]
+        completados.estados_del_dia.return_value = {
+            "act-1": "hecha",
+            "act-2": "no_hecha",
+        }
+
+        progreso = client.get(f"/api/v1/logros/resumen?fecha={HOY_ISO}").json()["progreso"]
+        respondidas = set(progreso["completados_ids"]) | set(progreso["no_hechas_ids"])
+
+        assert "act-3" not in respondidas
+
+    def test_una_sola_consulta_para_las_dos_listas(self, client, completados):
+        # Salen de las mismas filas. Pedirlas por separado serian dos viajes
+        # contra un servidor que tarda en despertar.
+        completados.estados_del_dia.return_value = {}
+
+        client.get(f"/api/v1/logros/resumen?fecha={HOY_ISO}")
+
+        assert completados.estados_del_dia.call_count == 1
+
+    def test_no_queda_un_camino_que_solo_vea_las_hechas(self):
+        # `del_dia` devolvia solo los ids hechos, y es lo que causo el bug:
+        # con esa lista, "no hecha" y "sin resolver" se ven igual. Que el
+        # puerto no la exponga es lo que impide que alguien la vuelva a usar
+        # sin darse cuenta de lo que pierde.
+        from domain.ports.outbound.completion_repository_port import (
+            CompletadosRepositoryPort,
+        )
+
+        assert not hasattr(CompletadosRepositoryPort, "del_dia")
+
+    def test_el_cierre_devuelve_las_dos_listas(self, client, completados, actividades):
+        actividades.list_all.return_value = [actividad("act-1"), actividad("act-2")]
+        completados.estados_del_dia.return_value = {
+            "act-1": "hecha", "act-2": "no_hecha",
+        }
+
+        cuerpo = client.post(
+            "/api/v1/logros/cerrar-dia",
+            json={"fecha": HOY_ISO, "respuesta": "algunas", "hechas": ["act-1"]},
+        ).json()
+
+        assert cuerpo["completados_ids"] == ["act-1"]
+        assert cuerpo["no_hechas_ids"] == ["act-2"]

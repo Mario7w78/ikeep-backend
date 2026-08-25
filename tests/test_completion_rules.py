@@ -270,3 +270,94 @@ class TestLoHechoPorArea:
             conteos = repo.conteos_por_area("token", date(2026, 1, 1))
 
         assert conteos.recientes == {"estudio": 1}
+
+
+class TestLosDiasQueHacenCrecer:
+    """Lo que alimenta el crecimiento del sapo.
+
+    Cuenta DIAS con algo confirmado, no cosas hechas. Con volumen, alguien que
+    se mata un domingo crece igual que alguien que aparecio todos los dias de
+    un mes, y lo que el personaje representa es constancia, no productividad.
+    Un dia es un dia, hayas hecho una cosa u ocho.
+    """
+
+    def _repo_devolviendo(self, filas):
+        from unittest.mock import Mock, patch
+
+        from infrastructure.adapters.outbound.supabase.completion_repository import (
+            SupabaseCompletadosRepository,
+        )
+
+        tabla = Mock()
+        tabla.select.return_value = tabla
+        tabla.gte.return_value = tabla
+        tabla.eq.return_value = tabla
+        tabla.execute.return_value = Mock(data=filas)
+        cliente = Mock()
+        cliente.table.return_value = tabla
+        parche = patch(
+            "infrastructure.adapters.outbound.supabase.completion_repository."
+            "client_for_user",
+            return_value=cliente,
+        )
+        return SupabaseCompletadosRepository(), parche
+
+    def _fila(self, fecha, area="estudio"):
+        return {"fecha": fecha, "activities": {"area": area}}
+
+    def test_ocho_cosas_en_un_dia_son_un_dia(self):
+        # No se puede atracar el crecimiento.
+        repo, parche = self._repo_devolviendo(
+            [self._fila("2026-06-01") for _ in range(8)]
+        )
+
+        with parche:
+            conteos = repo.conteos_por_area("token", date(2026, 1, 1))
+
+        assert conteos.dias_con_algo == 1
+
+    def test_una_cosa_por_dia_durante_tres_dias_son_tres(self):
+        repo, parche = self._repo_devolviendo([
+            self._fila("2026-06-01"),
+            self._fila("2026-06-02"),
+            self._fila("2026-06-03"),
+        ])
+
+        with parche:
+            conteos = repo.conteos_por_area("token", date(2026, 1, 1))
+
+        assert conteos.dias_con_algo == 3
+
+    def test_no_se_pierde_lo_viejo(self):
+        # A diferencia de la forma de la flor, el crecimiento acumula desde
+        # siempre: ver al sapo encoger porque tuviste una mala semana es el
+        # reproche que este diseno evita en todo lo demas.
+        repo, parche = self._repo_devolviendo([
+            self._fila("2020-03-01"),
+            self._fila("2026-06-01"),
+        ])
+
+        with parche:
+            conteos = repo.conteos_por_area("token", date(2026, 1, 1))
+
+        assert conteos.dias_con_algo == 2
+
+    def test_dias_distintos_de_areas_distintas_cuentan_igual(self):
+        # El sapo mide constancia; el reparto entre areas lo mide la flor.
+        repo, parche = self._repo_devolviendo([
+            self._fila("2026-06-01", "estudio"),
+            self._fila("2026-06-02", "cuerpo"),
+        ])
+
+        with parche:
+            conteos = repo.conteos_por_area("token", date(2026, 1, 1))
+
+        assert conteos.dias_con_algo == 2
+
+    def test_sin_nada_hecho_es_cero(self):
+        repo, parche = self._repo_devolviendo([])
+
+        with parche:
+            conteos = repo.conteos_por_area("token", date(2026, 1, 1))
+
+        assert conteos.dias_con_algo == 0

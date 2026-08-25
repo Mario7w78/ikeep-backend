@@ -49,20 +49,6 @@ class SupabaseCompletadosRepository(CompletadosRepositoryPort):
             .execute()
         )
 
-    def del_dia(self, access_token: str, fecha: date) -> list[str]:
-        # Filtrado en la base y no en memoria: una ocurrencia marcada como no
-        # hecha es una respuesta del usuario, no progreso, y contarla haria
-        # que decir la verdad subiera el anillo del dia.
-        respuesta = (
-            client_for_user(access_token)
-            .table(TABLA)
-            .select("activity_id")
-            .eq("fecha", fecha.isoformat())
-            .eq("estado", EstadoCompletado.HECHA.value)
-            .execute()
-        )
-        return [fila["activity_id"] for fila in (respuesta.data or [])]
-
     def estados_del_dia(self, access_token: str, fecha: date) -> dict[str, str]:
         respuesta = (
             client_for_user(access_token)
@@ -105,13 +91,23 @@ class SupabaseCompletadosRepository(CompletadosRepositoryPort):
 
         historico: dict[str, int] = {}
         recientes: dict[str, int] = {}
+        # Un set y no un contador: ocho cosas el mismo dia son un dia. Asi el
+        # crecimiento no se puede atracar.
+        dias: set[date] = set()
+
         for fila in respuesta.data or []:
             area = _area_de(fila)
             historico[area] = historico.get(area, 0) + 1
-            if _a_fecha(fila["fecha"]) >= desde:
+            fecha = _a_fecha(fila["fecha"])
+            dias.add(fecha)
+            if fecha >= desde:
                 recientes[area] = recientes.get(area, 0) + 1
 
-        return ConteosPorArea(historico=historico, recientes=recientes)
+        return ConteosPorArea(
+            historico=historico,
+            recientes=recientes,
+            dias_con_algo=len(dias),
+        )
 
 
 def _a_fecha(valor: Any) -> date:
