@@ -34,6 +34,22 @@ class Settings(BaseSettings):
     # on the network.
     VERIFY_SCHEMA_ON_STARTUP: bool = True
 
+    # Google Calendar (lectura sola, calendario primario). Vacias = la
+    # integracion esta apagada: los endpoints devuelven un error de
+    # configuracion distinguible en vez de fallar a media llamada.
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    # Clave Fernet para el refresh_token en reposo, formato
+    # `cryptography.Fernet.generate_key()`. Sin ella no se guardan conexiones.
+    GOOGLE_TOKEN_FERNET_KEY: str = ""
+    # La clave ANTERIOR, solo para leer tokens cifrados con ella mientras
+    # dura una rotacion. Al leer con la clave vieja se re-cifra con la nueva,
+    # asi que puede quitarse cuando ya quede nadie cifrado con ella.
+    GOOGLE_TOKEN_FERNET_KEY_PREV: str = ""
+    # Firma el `state` del OAuth (HS256). El callback llega desde el
+    # navegador sin JWT de Supabase, asi que el estado tiene que valerse solo.
+    GOOGLE_STATE_SECRET: str = ""
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
