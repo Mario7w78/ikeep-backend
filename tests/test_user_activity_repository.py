@@ -35,6 +35,7 @@ FILA = {
     "day_from": None,
     "day_to": None,
     "is_anchor": True,
+    "fecha_unica": None,
 }
 
 
@@ -185,3 +186,38 @@ class TestAreaDeVida:
         )
 
         assert fila["area"] == "cuerpo"
+
+
+class TestFechaUnica:
+    """El dia puntual de un evento que ocurre una sola vez.
+
+    El gate del change calendario-mensual detecto que el endpoint ACEPTABA
+    `fecha_unica` en el payload pero la descartaba: ni `_a_dominio`, ni
+    `dominio_a_fila`, ni `fila_a_dominio` la mapeaban. Estos tests fijan los
+    tres puntos para que no vuelva a pasar.
+    """
+
+    def test_se_guarda_en_la_fila_y_sobrevive_el_viaje_de_ida_y_vuelta(self):
+        parcial = ActividadUsuario(
+            id="p1",
+            propietario_id="u1",
+            nombre="Parcial",
+            tipo="FIJA",
+            dias_habilitados=[],
+            fecha_unica="2026-09-10",
+        )
+
+        fila = dominio_a_fila(parcial)
+
+        assert fila["fecha_unica"] == "2026-09-10"
+        assert fila_a_dominio(fila).fecha_unica == "2026-09-10"
+
+    def test_una_fila_anterior_a_la_columna_lee_none(self):
+        sin_fecha = {k: v for k, v in FILA.items() if k != "fecha_unica"}
+
+        assert fila_a_dominio(sin_fecha).fecha_unica is None
+
+    def test_sin_fecha_unica_la_fila_la_lleva_en_none(self):
+        fila = dominio_a_fila(fila_a_dominio(FILA))
+
+        assert fila["fecha_unica"] is None

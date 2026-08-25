@@ -186,6 +186,41 @@ class TestGuardar:
         repo.save.assert_not_called()
 
 
+class TestFechaUnica:
+    """Contrato de calendario-mensual: el PUT persiste el dia puntual y el
+    GET lo devuelve. Antes del fix, el endpoint aceptaba el campo en el
+    payload y lo descartaba en silencio."""
+
+    def test_put_con_fecha_unica_llega_al_repositorio(self, client, repo):
+        repo.save.return_value = ACTIVIDAD
+
+        respuesta = client.put(
+            "/api/v1/actividades/act-1",
+            json={**PAYLOAD, "days_enabled": [], "fecha_unica": "2026-09-10"},
+        )
+
+        assert respuesta.status_code == 200
+        guardada = repo.save.call_args[0][1]
+        assert guardada.fecha_unica == "2026-09-10"
+        assert guardada.dias_habilitados == []
+
+    def test_get_devuelve_la_fecha_unica_guardada(self, client, repo):
+        parcial = ActividadUsuario(
+            id="act-1",
+            propietario_id="usuario-1",
+            nombre="Parcial",
+            tipo="fija",
+            dias_habilitados=[],
+            fecha_unica="2026-09-10",
+        )
+        repo.get.return_value = parcial
+
+        respuesta = client.get("/api/v1/actividades/act-1")
+
+        assert respuesta.status_code == 200
+        assert respuesta.json()["fecha_unica"] == "2026-09-10"
+
+
 class TestBorrar:
     def test_borra_y_responde_sin_contenido(self, client, repo):
         respuesta = client.delete("/api/v1/actividades/act-1")

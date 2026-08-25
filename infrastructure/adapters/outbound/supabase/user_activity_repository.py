@@ -39,6 +39,7 @@ def fila_a_dominio(fila: dict[str, Any]) -> ActividadUsuario:
         dia_desde=fila.get("day_from"),
         dia_hasta=fila.get("day_to"),
         es_ancla=bool(fila.get("is_anchor", False)),
+        fecha_unica=fila.get("fecha_unica"),
     )
 
 
@@ -59,6 +60,7 @@ def dominio_a_fila(actividad: ActividadUsuario) -> dict[str, Any]:
         "day_from": actividad.dia_desde,
         "day_to": actividad.dia_hasta,
         "is_anchor": actividad.es_ancla,
+        "fecha_unica": actividad.fecha_unica,
     }
 
 

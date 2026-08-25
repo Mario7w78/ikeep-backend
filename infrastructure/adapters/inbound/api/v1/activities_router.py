@@ -63,6 +63,11 @@ def _a_dominio(payload: ActivityPayload, activity_id: str, user_id: str) -> Acti
         dia_desde=payload.day_from,
         dia_hasta=payload.day_to,
         es_ancla=payload.is_anchor,
+        # Pydantic parsea el string ISO a `date`; la entidad y la fila viajan
+        # con el texto "YYYY-MM-DD" para que el ciclo sea transparente.
+        fecha_unica=(
+            payload.fecha_unica.isoformat() if payload.fecha_unica else None
+        ),
     )
 
 
