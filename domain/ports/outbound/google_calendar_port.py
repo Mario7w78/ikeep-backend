@@ -51,6 +51,21 @@ class EventoRemoto:
     todo_el_dia: bool = False
 
 
+@dataclass(frozen=True)
+class VentanaDeEventos:
+    """Lo que devuelve una pasada de lectura completa del calendario.
+
+    El adaptador recorre las paginas por dentro: al que llama no le interesa
+    la mecanica, le interesan los eventos y la marca para la proxima pasada
+    incremental.
+    """
+
+    eventos: list[EventoRemoto]
+    #: La marca que pide Google para traer solo cambios. Viene solo si la
+    #: pasada fue completa (con syncToken no se entrega marca nueva).
+    sync_token: str | None = None
+
+
 class GoogleCalendarPort(ABC):
     """Las cuatro llamadas que la integracion necesita. Ni una mas."""
 
@@ -70,14 +85,15 @@ class GoogleCalendarPort(ABC):
         access_token: str,
         desde: datetime,
         hasta: datetime,
-        page_token: str | None = None,
         sync_token: str | None = None,
-    ) -> tuple[list[EventoRemoto], str | None]:
-        """Los eventos que se solapan con la ventana, y el token de pagina.
+    ) -> VentanaDeEventos:
+        """Los eventos que se solapan con la ventana.
 
-        Devuelve (eventos, next_page_token). Si `sync_token` viene, Google
-        manda solo cambios desde esa marca; si responde 410 levanta
-        ErrorDeGoogle para que quien orquesta decida reintentar completo.
+        Sin `sync_token` hace una pasada completa acotada a [desde, hasta].
+        Con el, Google manda solo cambios desde esa marca —y entonces la
+        ventana no viaja: Google rechaza las dos cosas juntas—. Si la marca
+        ya no vale, levanta ErrorDeGoogle con clase 'gone' para que quien
+        orquesta decida reintentar completo.
         """
 
     @abstractmethod
