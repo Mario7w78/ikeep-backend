@@ -47,7 +47,9 @@ class GoogleTokensRepositoryPort(ABC):
         """El syncToken vigente, o None si la proxima tiene que ser completa."""
 
     @abstractmethod
-    def guardar_sync_token(self, access_token: str, sync_token: str) -> None:
+    def guardar_sync_token(
+        self, access_token: str, user_id: str, sync_token: str
+    ) -> None:
         """Actualiza la marca despues de una sincronizacion exitosa."""
 
     @abstractmethod
