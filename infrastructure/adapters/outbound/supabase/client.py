@@ -63,6 +63,23 @@ def client_for_user(access_token: str) -> Client:
     return client
 
 
+def client_con_rol_de_servicio() -> Client:
+    """Cliente privilegiado que saltea RLS. Un cuchillo bien guardado.
+
+    Solo existe para escrituras que llegan SIN credenciales de usuario: hoy,
+    exactamente una — el upsert de google_tokens en el callback OAuth, donde
+    quien habla es el navegador de Google y nadie trae un JWT. Cada uso nuevo
+    de este cliente deberia justificar por que RLS no alcanza.
+    """
+    settings = get_settings()
+    if not settings.SUPABASE_URL or not settings.SUPABASE_SERVICE_ROLE_KEY:
+        raise RuntimeError(
+            "Faltan SUPABASE_URL y/o SUPABASE_SERVICE_ROLE_KEY. Sin la clave "
+            "de servicio no se puede completar el callback de Google."
+        )
+    return create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
+
+
 def missing_tables(client: Client) -> list[str]:
     """Names from REQUIRED_TABLES that the database does not answer for.
 

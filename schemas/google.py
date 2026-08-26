@@ -36,13 +36,16 @@ class EventoImportadoResponse(BaseModel):
 class CalendarioGoogleResponse(BaseModel):
     """Los eventos importados que tocan el rango pedido.
 
-    `dias` es la expansion: un evento de varios dias aparece una vez en
-    `eventos` pero lista todos los dias que ocupa, recortados al rango.
-    El cliente dibuja por dia y asi no tiene que cruzar nada.
+    Sin conexion responde SOLO `{conectado: false}` con 200: para la UI eso
+    es un estado normal, no un error. Con conexion, `dias` es la expansion:
+    un evento de varios dias aparece una vez en `eventos` pero lista todos
+    los dias que ocupa, recortados al rango. El cliente dibuja por dia y asi
+    no tiene que cruzar nada.
     """
 
-    desde: date
-    hasta: date
-    eventos: list[EventoImportadoResponse]
+    conectado: bool = True
+    desde: date | None = None
+    hasta: date | None = None
+    eventos: list[EventoImportadoResponse] = []
     #: id del evento -> dias (ISO) en que aparece dentro del rango.
-    dias: dict[str, list[date]]
+    dias: dict[str, list[date]] = {}

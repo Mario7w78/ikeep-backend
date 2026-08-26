@@ -11,10 +11,37 @@ from domain.ports.outbound.google_token_repository_port import (
     GoogleTokensRepositoryPort,
     TokensDeConexion,
 )
-from infrastructure.adapters.outbound.supabase.client import client_for_user
+from infrastructure.adapters.outbound.supabase.client import (
+    client_con_rol_de_servicio,
+    client_for_user,
+)
 
 TABLA = "google_tokens"
 TABLA_SYNC = "sync_tokens"
+
+
+def guardar_como_servicio(tokens: TokensDeConexion) -> None:
+    """El upsert del callback OAuth, con rol de servicio.
+
+    Es la UNICA escritura privilegiada de la integracion y existe por una
+    sola razon: el callback llega desde el navegador, sin JWT de nadie, y
+    RLS (con toda la razon) rechazaria escribir. El user_id viaja firmado
+    dentro del state — no se toma de un cuerpo suelto.
+    """
+    client_con_rol_de_servicio().table(TABLA).upsert(
+        {
+            "user_id": tokens.user_id,
+            "refresh_token_cifrado": tokens.refresh_token_cifrado,
+            "access_token": tokens.access_token,
+            "access_expira_en": (
+                tokens.access_expira_en.isoformat()
+                if tokens.access_expira_en
+                else None
+            ),
+            "actualizado_en": datetime.now().astimezone().isoformat(),
+        },
+        on_conflict="user_id",
+    ).execute()
 
 
 class SupabaseGoogleTokensRepository(GoogleTokensRepositoryPort):

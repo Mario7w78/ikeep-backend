@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     # secret. Newer ones sign asymmetrically and are verified through JWKS,
     # which needs no secret at all.
     SUPABASE_JWT_SECRET: str = ""
+    # Clave de servicio: saltea RLS. SOLO para escrituras que llegan sin
+    # credenciales de usuario —hoy, una sola: el upsert de google_tokens en
+    # el callback OAuth del navegador—. Si suma un segundo uso, revisar si
+    # conviene un endpoint con el JWT del usuario.
+    SUPABASE_SERVICE_ROLE_KEY: str = ""
     # Checking the schema costs one request per table against the live
     # project. Wanted in production, unwanted in tests, which must not depend
     # on the network.
@@ -49,6 +54,10 @@ class Settings(BaseSettings):
     # Firma el `state` del OAuth (HS256). El callback llega desde el
     # navegador sin JWT de Supabase, asi que el estado tiene que valerse solo.
     GOOGLE_STATE_SECRET: str = ""
+    # La URL exacta que Google debe llamar de vuelta. Vacia = se deriva del
+    # request (suficiente en local); en produccion conviene fijarla porque
+    # el proxy no siempre deja pasar el esquema real.
+    GOOGLE_REDIRECT_URI: str = ""
 
     @property
     def cors_origin_list(self) -> list[str]:
