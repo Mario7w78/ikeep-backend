@@ -19,7 +19,9 @@ pydantic==2.12.5
 pydantic-settings==2.14.1
 pydantic_core==2.41.5
 PyJWT==2.13.0
+cryptography==49.0.0
 pytest==9.0.3
+respx==0.23.1
 PyYAML==6.0.3
 python-dateutil==2.9.0.post0
 supabase==2.31.0

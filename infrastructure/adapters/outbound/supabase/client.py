@@ -24,8 +24,11 @@ logger = logging.getLogger(__name__)
 REQUIRED_TABLES = (
     "activities",
     "energy_records",
+    "google_events",
+    "google_tokens",
     "profiles",
     "schedules",
+    "sync_tokens",
     "user_settings",
 )
 
