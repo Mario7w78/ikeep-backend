@@ -23,7 +23,11 @@ from domain.services.google.sincronizar import (
 
 DESDE = date(2026, 8, 1)
 HASTA = date(2026, 8, 31)
-TOKEN = "jwt"
+# Dos credenciales de dominios DISTINTOS (F1): la de Google va al puerto de
+# Google; el JWT va a los repositorios. Valores distinguibles a proposito:
+# si se cruzan, los asserts lo ven.
+TOKEN_GOOGLE = "at-de-google"
+JWT_SUPABASE = "jwt-de-supabase"
 USUARIO = "usuario-1"
 
 
@@ -49,7 +53,12 @@ class GoogleFalso:
         raise NotImplementedError
 
     def list_events(self, access_token, desde, hasta, sync_token=None):
-        self.llamadas.append({"sync_token": sync_token, "desde": desde, "hasta": hasta})
+        self.llamadas.append({
+            "access_token": access_token,
+            "sync_token": sync_token,
+            "desde": desde,
+            "hasta": hasta,
+        })
         if self.errores:
             raise self.errores.pop(0)
         return self.respuestas.pop(0)
@@ -60,6 +69,7 @@ class TokensFalsos:
         self.marca = marca_inicial
         self.marcas_guardadas = []
         self.marcas_borradas = 0
+        self.jwt_recibidos: list[str] = []
 
     # Los metodos que no usa sincronizar no existen: si alguien los llamara,
     # el test romperia en la cara. Eso es lo que queremos.
@@ -72,14 +82,17 @@ class TokensFalsos:
     def borrar(self, *_a):  # pragma: no cover
         raise NotImplementedError
 
-    def sync_token(self, _t):
+    def sync_token(self, jwt):
+        self.jwt_recibidos.append(jwt)
         return self.marca
 
-    def guardar_sync_token(self, _t, _u, marca):
+    def guardar_sync_token(self, jwt, _u, marca):
+        self.jwt_recibidos.append(jwt)
         self.marca = marca
         self.marcas_guardadas.append(marca)
 
-    def borrar_sync_token(self, _t):
+    def borrar_sync_token(self, jwt):
+        self.jwt_recibidos.append(jwt)
         self.marca = None
         self.marcas_borradas += 1
 
@@ -87,8 +100,10 @@ class TokensFalsos:
 class EventosFalsos:
     def __init__(self):
         self.guardados: list[EventoImportado] = []
+        self.jwt_recibidos: list[str] = []
 
-    def upsert(self, _t, user_id, eventos):
+    def upsert(self, jwt, user_id, eventos):
+        self.jwt_recibidos.append(jwt)
         ids = {e.id for e in self.guardados}
         for e in eventos:
             if e.id in ids:
@@ -96,7 +111,8 @@ class EventosFalsos:
             else:
                 self.guardados.append(e)
 
-    def del_rango(self, _t, desde, hasta):
+    def del_rango(self, jwt, desde, hasta):
+        self.jwt_recibidos.append(jwt)
         return [
             e
             for e in self.guardados
@@ -133,7 +149,7 @@ class TestPrimeraPasada:
         )
 
         resultado = sincronizar(
-            TOKEN, USUARIO, mundo["google"], mundo["tokens"], mundo["eventos"],
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"], mundo["eventos"],
             DESDE, HASTA,
         )
 
@@ -148,7 +164,7 @@ class TestPrimeraPasada:
         mundo["google"].respuestas.append(VentanaDeEventos([]))
 
         sincronizar(
-            TOKEN, USUARIO, mundo["google"], mundo["tokens"], mundo["eventos"],
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"], mundo["eventos"],
             DESDE, HASTA,
         )
 
@@ -170,7 +186,7 @@ class TestPrimeraPasada:
         )
 
         resultado = sincronizar(
-            TOKEN, USUARIO, mundo["google"], mundo["tokens"], mundo["eventos"],
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"], mundo["eventos"],
             DESDE, HASTA,
         )
 
@@ -183,7 +199,7 @@ class TestPasadaIncremental:
         mundo["google"].respuestas.append(VentanaDeEventos([]))
 
         resultado = sincronizar(
-            TOKEN, USUARIO, mundo["google"], mundo["tokens"], mundo["eventos"],
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"], mundo["eventos"],
             DESDE, HASTA,
         )
 
@@ -195,7 +211,7 @@ class TestPasadaIncremental:
         mundo["tokens"].marca = "st-vieja"
         # El evento ya estaba; el incremental trae su version nueva.
         mundo["eventos"].upsert(
-            TOKEN,
+            JWT_SUPABASE,
             USUARIO,
             [EventoImportado(
                 id="e1", titulo="viejo",
@@ -211,7 +227,7 @@ class TestPasadaIncremental:
         mundo["google"].respuestas.append(VentanaDeEventos([nuevo]))
 
         resultado = sincronizar(
-            TOKEN, USUARIO, mundo["google"], mundo["tokens"], mundo["eventos"],
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"], mundo["eventos"],
             DESDE, HASTA,
         )
 
@@ -228,7 +244,7 @@ class TestSyncTokenVencido:
         )
 
         resultado = sincronizar(
-            TOKEN, USUARIO, mundo["google"], mundo["tokens"], mundo["eventos"],
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"], mundo["eventos"],
             DESDE, HASTA,
         )
 
@@ -247,12 +263,79 @@ class TestSyncTokenVencido:
 
         with pytest.raises(ErrorDeGoogle) as capturado:
             sincronizar(
-                TOKEN, USUARIO, mundo["google"], mundo["tokens"],
+                TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"],
                 mundo["eventos"], DESDE, HASTA,
             )
 
         assert capturado.value.clase == "quota"
         assert mundo["tokens"].marcas_borradas == 0
+
+
+class TestCredencialesSeparadas:
+    """F1: el token de Google y el JWT de Supabase son dominios distintos.
+
+    El defecto original: UNA credencial alimentaba los dos mundos y en vivo
+    PostgREST recibia un token opaco de Google. Los fakes que ignoraban el
+    parametro no podian verlo; estos asserts si.
+    """
+
+    def test_el_token_de_google_va_solo_al_puerto_y_el_jwt_a_los_repos(
+        self, mundo,
+    ):
+        mundo["google"].respuestas.append(VentanaDeEventos([]))
+
+        sincronizar(
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"],
+            mundo["tokens"], mundo["eventos"], DESDE, HASTA,
+        )
+
+        # Sink de Google: SOLO el access token de Google.
+        assert mundo["google"].llamadas, "Google nunca fue llamado"
+        assert all(
+            llamada["access_token"] == TOKEN_GOOGLE
+            for llamada in mundo["google"].llamadas
+        )
+        # Sinks de Supabase: SOLO el JWT del usuario.
+        assert mundo["tokens"].jwt_recibidos == [JWT_SUPABASE]
+        assert mundo["eventos"].jwt_recibidos.count(JWT_SUPABASE) >= 1
+
+    def test_las_dos_credenciales_nunca_se_cruzan_en_pasada_incremental(
+        self, mundo,
+    ):
+        # Camino incremental + guardado de marca: toca los dos dominios.
+        mundo["tokens"].marca = "st-vieja"
+        mundo["google"].respuestas.append(
+            VentanaDeEventos([_evento()], sync_token="st-nueva")
+        )
+
+        sincronizar(
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"],
+            mundo["tokens"], mundo["eventos"], DESDE, HASTA,
+        )
+
+        assert TOKEN_GOOGLE not in mundo["tokens"].jwt_recibidos
+        assert JWT_SUPABASE not in [
+            l["access_token"] for l in mundo["google"].llamadas
+        ]
+        # Comportamiento existente: la pasada incremental NO guarda marca.
+        assert mundo["tokens"].marcas_guardadas == []
+        assert mundo["tokens"].marca == "st-vieja"
+
+    def test_en_el_reintento_tras_410_tambien_van_separados(self, mundo):
+        mundo["tokens"].marca = "st-muerta"
+        mundo["google"].errores.append(ErrorDeGoogle("gone", "la marca expiro"))
+        mundo["google"].respuestas.append(VentanaDeEventos([_evento()]))
+
+        sincronizar(
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"],
+            mundo["tokens"], mundo["eventos"], DESDE, HASTA,
+        )
+
+        # Las dos pasadas (incremental muerta + completa) contra Google con
+        # su token; todo toque a repos, con el JWT.
+        assert {l["access_token"] for l in mundo["google"].llamadas} == {TOKEN_GOOGLE}
+        assert set(mundo["tokens"].jwt_recibidos) == {JWT_SUPABASE}
+        assert set(mundo["eventos"].jwt_recibidos) == {JWT_SUPABASE}
 
 
 class TestDiasSolapados:

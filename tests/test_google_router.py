@@ -56,6 +56,7 @@ class GoogleFalso:
         self.refreshes: list[tuple[object, object]] = []
         self.revocados: list[str] = []
         self.tokens_de_exchange = None
+        self.tokens_recibidos: list[str] = []
 
     def exchange_code(self, code, verifier, redirect_uri):
         if self.errores:
@@ -69,6 +70,7 @@ class GoogleFalso:
         return self.tokens_de_exchange or _tokens_nuevos()
 
     def list_events(self, access_token, desde, hasta, sync_token=None):
+        self.tokens_recibidos.append(access_token)
         if self.errores:
             raise self.errores.pop(0)
         return self.respuestas.pop(0)
@@ -93,21 +95,26 @@ class TokensFalsos(GoogleTokensRepositoryPort):
         self.marca = None
         self.borrado = False
         self.marca_borrada = False
+        self.jwt_recibidos: list[str] = []
 
-    def guardar(self, _t, tokens):
+    def guardar(self, jwt, tokens):
+        self.jwt_recibidos.append(jwt)
         self.conexion = tokens
 
-    def obtener(self, _t):
+    def obtener(self, jwt):
+        self.jwt_recibidos.append(jwt)
         return self.conexion
 
-    def borrar(self, _t):
+    def borrar(self, jwt):
         self.borrado = True
         self.conexion = None
 
-    def sync_token(self, _t):
+    def sync_token(self, jwt):
+        self.jwt_recibidos.append(jwt)
         return self.marca
 
-    def guardar_sync_token(self, _t, _u, marca):
+    def guardar_sync_token(self, jwt, _u, marca):
+        self.jwt_recibidos.append(jwt)
         self.marca = marca
 
     def borrar_sync_token(self, _t):
@@ -118,13 +125,16 @@ class TokensFalsos(GoogleTokensRepositoryPort):
 class EventosFalsos(GoogleEventsRepositoryPort):
     def __init__(self):
         self.guardados: list[EventoImportado] = []
+        self.jwt_recibidos: list[str] = []
 
-    def upsert(self, _t, user_id, eventos):
+    def upsert(self, jwt, user_id, eventos):
+        self.jwt_recibidos.append(jwt)
         self.user_id_recibido = user_id
         for e in eventos:
             self.guardados = [x for x in self.guardados if x.id != e.id] + [e]
 
-    def del_rango(self, _t, desde, hasta):
+    def del_rango(self, jwt, desde, hasta):
+        self.jwt_recibidos.append(jwt)
         return [e for e in self.guardados if e.inicio < hasta and e.fin > desde]
 
     def borrar_todo(self, _t):
@@ -398,6 +408,26 @@ class TestCalendarioGoogle:
         cliente.get("/api/v1/calendario/google?desde=2026-08-01&hasta=2026-08-31")
 
         assert tokens_falsos.marca == "st-1"
+
+    def test_el_token_de_google_y_el_jwt_de_supabase_no_se_mezclan(
+        self, cliente, google_falso, tokens_falsos, eventos_falsos
+    ):
+        # F1: la sync habla con DOS mundos de credenciales. A Google va el
+        # access token guardado en la conexion; a PostgREST, el JWT que vino
+        # en el request. Cruzarlos rompe todo en vivo aunque aqui sea 200.
+        tokens_falsos.conexion = _conexion_viva()
+        google_falso.respuestas.append(self._ventana())
+
+        r = cliente.get(
+            "/api/v1/calendario/google?desde=2026-08-01&hasta=2026-08-31"
+        )
+
+        assert r.status_code == 200
+        assert set(google_falso.tokens_recibidos) == {"at-vigente"}
+        assert TOKEN not in google_falso.tokens_recibidos
+        assert tokens_falsos.jwt_recibidos, "el JWT nunca llego al repo de tokens"
+        assert set(tokens_falsos.jwt_recibidos) == {TOKEN}
+        assert "at-vigente" not in tokens_falsos.jwt_recibidos
 
     def test_un_refresh_rechazado_pide_reconectar_con_401(
         self, cliente, google_falso, tokens_falsos

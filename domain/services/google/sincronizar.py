@@ -49,7 +49,8 @@ class Sincronizacion:
 
 
 def sincronizar(
-    access_token: str,
+    token_google: str,
+    jwt_supabase: str,
     user_id: str,
     google: GoogleCalendarPort,
     tokens: GoogleTokensRepositoryPort,
@@ -59,62 +60,74 @@ def sincronizar(
 ) -> Sincronizacion:
     """Trae los cambios de Google, actualiza el cache y devuelve el rango.
 
+    DOS credenciales de dominios distintos y NO intercambiables:
+
+    - `token_google`: el access token de la API de Google. Solo para el
+      puerto `google`.
+    - `jwt_supabase`: el JWT del usuario en Supabase. Solo para los
+      repositorios, que lo usan como identidad RLS en PostgREST.
+
+    Mezclarlos rompe todo en vivo aunque los fakes no lo noten: por eso
+    existen como parametros separados desde la firma.
+
     El 410 NO es un fallo: Google diciendo 'esa marca ya no vale'. Se borra
     la marca, se repite completa y el usuario ve su calendario igual.
     """
-    marca = tokens.sync_token(access_token)
+    marca = tokens.sync_token(jwt_supabase)
 
     if marca:
         try:
-            ventana = google.list_events(access_token, _a_momento(desde),
+            ventana = google.list_events(token_google, _a_momento(desde),
                                          _a_momento(hasta + timedelta(days=1)),
                                          sync_token=marca)
         except ErrorDeGoogle as exc:
             if exc.clase != "gone":
                 raise
             # La marca murio. Sin marca, la proxima pasada es completa.
-            tokens.borrar_sync_token(access_token)
+            tokens.borrar_sync_token(jwt_supabase)
             return _pasada_completa(
-                access_token, user_id, google, tokens, eventos, desde, hasta
+                token_google, jwt_supabase, user_id, google, tokens,
+                eventos, desde, hasta
             )
     else:
         return _pasada_completa(
-            access_token, user_id, google, tokens, eventos, desde, hasta
+            token_google, jwt_supabase, user_id, google, tokens,
+            eventos, desde, hasta
         )
 
-    _aplicar_cambios(access_token, user_id, eventos, ventana.eventos)
+    _aplicar_cambios(jwt_supabase, user_id, eventos, ventana.eventos)
     return Sincronizacion(
         eventos=eventos.del_rango(
-            access_token, _a_momento(desde), _a_momento(hasta + timedelta(days=1))
+            jwt_supabase, _a_momento(desde), _a_momento(hasta + timedelta(days=1))
         ),
         fue_completa=False,
     )
 
 
 def _pasada_completa(
-    access_token, user_id, google, tokens, eventos, desde, hasta
+    token_google, jwt_supabase, user_id, google, tokens, eventos, desde, hasta
 ) -> Sincronizacion:
     ventana = google.list_events(
-        access_token,
+        token_google,
         _a_momento(desde - _AMPLIACION),
         _a_momento(hasta + timedelta(days=1) + _AMPLIACION),
     )
-    _aplicar_cambios(access_token, user_id, eventos, ventana.eventos)
+    _aplicar_cambios(jwt_supabase, user_id, eventos, ventana.eventos)
 
     if ventana.sync_token:
-        tokens.guardar_sync_token(access_token, user_id, ventana.sync_token)
+        tokens.guardar_sync_token(jwt_supabase, user_id, ventana.sync_token)
 
     return Sincronizacion(
         eventos=eventos.del_rango(
-            access_token, _a_momento(desde), _a_momento(hasta + timedelta(days=1))
+            jwt_supabase, _a_momento(desde), _a_momento(hasta + timedelta(days=1))
         ),
         fue_completa=True,
     )
 
 
-def _aplicar_cambios(access_token, user_id, eventos_repo, remotos) -> None:
+def _aplicar_cambios(jwt_supabase, user_id, eventos_repo, remotos) -> None:
     eventos_repo.upsert(
-        access_token,
+        jwt_supabase,
         user_id,
         [
             EventoImportado(

@@ -334,12 +334,23 @@ def _sincronizar_con_renovacion(
 
     El refresco reactivo intenta UNA vez: si la segunda tambien llega muerta,
     el problema no es el token sino la conexion entera, y eso sube como 401.
+
+    Dos credenciales que NO se mezclan: `token` es el JWT de Supabase (viene
+    del request, identidad RLS) y `acceso` es el access token de Google
+    (renovado a demanda). Cada uno viaja a su dominio.
     """
     acceso = _acceso_vigente(token, google, tokens_repo, conexion)
 
     try:
         return sincronizar(
-            acceso, user_id, google, tokens_repo, eventos_repo, desde, hasta
+            token_google=acceso,
+            jwt_supabase=token,
+            user_id=user_id,
+            google=google,
+            tokens=tokens_repo,
+            eventos=eventos_repo,
+            desde=desde,
+            hasta=hasta,
         )
     except ErrorDeGoogle as exc:
         if exc.clase != "sesion":
@@ -348,7 +359,14 @@ def _sincronizar_con_renovacion(
     acceso = _renovar(token, google, tokens_repo, conexion, forzado=True)
     try:
         return sincronizar(
-            acceso, user_id, google, tokens_repo, eventos_repo, desde, hasta
+            token_google=acceso,
+            jwt_supabase=token,
+            user_id=user_id,
+            google=google,
+            tokens=tokens_repo,
+            eventos=eventos_repo,
+            desde=desde,
+            hasta=hasta,
         )
     except ErrorDeGoogle as exc:
         raise _traducir_google(exc) from exc
