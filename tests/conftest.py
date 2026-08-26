@@ -25,3 +25,13 @@ def pytest_configure(config):
         "markers",
         "integration: corre contra Supabase vivo; se salta sin credenciales",
     )
+    # Desactivar la verificacion ANTES de coleccion: hay tests que importan
+    # main al importarse, y create_app() consulta el proyecto vivo si nadie
+    # la frena antes. Los fixtures llegan tarde para eso.
+    settings_module._settings = settings_module.Settings(
+        VERIFY_SCHEMA_ON_STARTUP=False
+    )
+
+
+def pytest_unconfigure(config):
+    settings_module._settings = None

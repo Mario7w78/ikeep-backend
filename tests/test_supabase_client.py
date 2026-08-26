@@ -101,12 +101,17 @@ class TestChequeoDeEsquema:
         """RLS returns no rows to an anonymous caller — that is not an error."""
         assert missing_tables(_stub_client()) == []
 
-    def test_revisa_las_cinco_tablas(self):
+    def test_revisa_las_ocho_tablas(self):
+        # Las cinco de siempre mas las tres de Google Calendar (los eventos,
+        # los tokens de la conexion y la marca de sincronizacion).
         assert set(REQUIRED_TABLES) == {
             "activities",
             "energy_records",
+            "google_events",
+            "google_tokens",
             "profiles",
             "schedules",
+            "sync_tokens",
             "user_settings",
         }
 
