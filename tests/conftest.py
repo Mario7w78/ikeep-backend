@@ -18,3 +18,10 @@ def _no_schema_check_in_tests():
     )
     yield
     settings_module._settings = original
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "integration: corre contra Supabase vivo; se salta sin credenciales",
+    )
