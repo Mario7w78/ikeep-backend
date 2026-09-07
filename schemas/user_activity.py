@@ -20,6 +20,9 @@ class ActivityPayload(BaseModel):
 
     id: str = Field(min_length=1, max_length=128)
     title: str = Field(min_length=1, max_length=200)
+    #: Nota libre "para que es esto". No participa del solver; es texto para
+    #: la persona. null = la actividad no tiene descripcion.
+    description: str | None = Field(default=None, max_length=2000)
     type: str = Field(min_length=1, max_length=50)
     #: Uno de los cinco petalos: estudio, trabajo, cuerpo, vinculos, yo.
     area: str = Field(default="estudio", max_length=20)

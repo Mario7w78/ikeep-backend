@@ -29,6 +29,7 @@ PAYLOAD = {
     "id": "act-1",
     "title": "Calculo",
     "type": "fija",
+    "description": None,
     "area": "estudio",
     "identity": "clase",
     "priority": 1,

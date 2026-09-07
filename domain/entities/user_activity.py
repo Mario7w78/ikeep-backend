@@ -21,6 +21,9 @@ class ActividadUsuario:
     propietario_id: str
     nombre: str
     tipo: str
+    #: Nota libre del usuario ("para que es esto"). No participa del solver:
+    #: es texto para la persona, y viaja y se guarda tal cual.
+    descripcion: str | None = None
     #: De que parte de la vida es. Los cinco petalos del loto: estudio,
     #: trabajo, cuerpo, vinculos, yo.
     #:

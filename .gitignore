@@ -19,3 +19,5 @@ __pycache__/
 
 # Logs de la aplicación
 *.log
+# Graphify (grafo generado de la base de codigo)
+graphify-out/

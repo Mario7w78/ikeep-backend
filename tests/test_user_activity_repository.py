@@ -24,6 +24,7 @@ FILA = {
     "user_id": "usuario-1",
     "title": "Calculo",
     "type": "fija",
+    "description": None,
     "area": "estudio",
     "identity": "clase",
     "priority": 1,
@@ -186,6 +187,41 @@ class TestAreaDeVida:
         )
 
         assert fila["area"] == "cuerpo"
+
+
+class TestDescription:
+    """La nota libre del usuario sobre una actividad.
+
+    No participa del solver: se guarda y se devuelve tal cual. Los tres
+    puntos —fila, entidad, viaje de vuelta— deben mapearla como `area` o
+    `fecha_unica`, para que el gate no vuelva a detectar un campo que el
+    endpoint acepta y descarta.
+    """
+
+    def test_se_lee_de_la_fila(self):
+        actividad = fila_a_dominio({**FILA, "description": "Entregar antes del parcial"})
+
+        assert actividad.descripcion == "Entregar antes del parcial"
+        assert fila_a_dominio(FILA).descripcion is None
+
+    def test_una_fila_anterior_a_la_columna_lee_none(self):
+        sin_descripcion = {k: v for k, v in FILA.items() if k != "description"}
+
+        assert fila_a_dominio(sin_descripcion).descripcion is None
+
+    def test_viaja_de_vuelta_al_guardar(self):
+        fila = dominio_a_fila(
+            ActividadUsuario(
+                id="a1",
+                propietario_id="u1",
+                nombre="Correr",
+                tipo="FLEXIBLE",
+                descripcion="Media hora por la mañana",
+            )
+        )
+
+        assert fila["description"] == "Media hora por la mañana"
+        assert fila_a_dominio(fila).descripcion == "Media hora por la mañana"
 
 
 class TestFechaUnica:
