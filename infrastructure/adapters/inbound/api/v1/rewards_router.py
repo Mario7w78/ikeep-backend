@@ -49,6 +49,12 @@ router = APIRouter(prefix="/api/v1/logros", tags=["Logros"])
 #: real y evita traerse el historial entero en cada apertura de la app.
 _VENTANA_DIAS = 365
 
+#: Cuantos dias hacia atras se sigue pudiendo marcar una ocurrencia.
+#: Comparte el valor con `domain/services/rewards/completion.DIAS_DE_GRACIA`;
+#: aca solo se repite como techo del carry-over, para no traer el historial
+#: entero en cada apertura.
+_DIAS_CARRY = 2
+
 
 def get_completions_repository() -> CompletadosRepositoryPort:
     return SupabaseCompletadosRepository()
@@ -144,6 +150,26 @@ class ResumenResponse(BaseModel):
     #: esta respuesta porque el calculo de la racha ya los trajo: pedirlos
     #: aparte seria repetir la misma consulta.
     dias_completados: list[date] = Field(default_factory=list)
+    #: Lo que quedo sin decir en los dias anteriores dentro de la gracia.
+    #: Alimenta el carry-over: si el usuario no abrio la app el dia anterior,
+    #: esto le permite responder o reprogramar al dia siguiente. Toda accion
+    #: la decide el cliente despues de preguntar; el servidor solo informa.
+    pendientes_pasados: list["PendientePasado"] = Field(default_factory=list)
+
+
+class PendientePasado(BaseModel):
+    """Un dia anterior con ocurrencias que nadie respondio todavia."""
+
+    #: Fecha del dia anterior, en formato AAAA-MM-DD del usuario.
+    fecha: date
+    #: Las actividades de ese dia que quedaron sin resolver (ni hechas ni no
+    #: hechas). Solo las que todavia se pueden marcar (dentro de la gracia).
+    items: list["PendientePasadoItem"]
+
+
+class PendientePasadoItem(BaseModel):
+    activity_id: str
+    titulo: str
 
 
 def _exigir_fecha_afirmable(fecha: date, desfase_utc_minutos: int) -> None:
@@ -286,6 +312,9 @@ def resumen(
         ),
         # Ordenados: el cliente los dibuja en una linea de tiempo.
         dias_completados=sorted(dias_con_algo_hecho),
+        pendientes_pasados=_pendientes_pasados(
+            actividades_repo, repo, token, fecha, desfase_utc_minutos
+        ),
     )
 
 
@@ -370,3 +399,48 @@ def _ids_que_tocan(actividades, fecha: date) -> list[str]:
         elif indice in indices:
             ids.append(actividad.id)
     return ids
+
+
+def _pendientes_pasados(
+    actividades_repo: ActividadUsuarioRepositoryPort,
+    repo: CompletadosRepositoryPort,
+    token: str,
+    hoy: date,
+    desfase_utc_minutos: int,
+) -> list[PendientePasado]:
+    """Los dias anteriores (dentro de la gracia) con ocurrencias sin responder.
+
+    Solo entra en el carry-over lo que todavia se puede marcar: una fecha
+    fuera del margen de gracia ya no admite afirmacion, asi que listarla solo
+    confundiria. Se usa el dia del usuario (desfase) para saber cual es el
+    ayer real.
+    """
+    hoy_usuario = hoy_del_usuario(desfase_utc_minutos)
+    actividades = actividades_repo.list_all(token)
+    nombres = {a.id: a.nombre for a in actividades}
+
+    resultado: list[PendientePasado] = []
+    for atras in range(1, _DIAS_CARRY + 1):
+        dia = hoy_usuario - timedelta(days=atras)
+        # Fuera de la gracia no se puede afirmar nada de ese dia: se descarta.
+        if validar_marcado(dia, hoy=hoy_usuario) is not None:
+            continue
+
+        tocan = _ids_que_tocan(actividades, dia)
+        if not tocan:
+            continue
+
+        estados = repo.estados_del_dia(token, dia)
+        # Sin resolver = toca ese dia y nadie dijo ni sí ni no todavía.
+        sin_resolver = [
+            PendientePasadoItem(activity_id=i, titulo=nombres.get(i, "Actividad"))
+            for i in tocan
+            if i not in estados
+        ]
+        if sin_resolver:
+            resultado.append(
+                PendientePasado(fecha=dia, items=sin_resolver)
+            )
+
+    # Del más reciente al más viejo: lo de ayer es lo primero que hay que ver.
+    return resultado
