@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from domain.ports.outbound.google_calendar_port import (
+    CalendarioRemoto,
     ErrorDeGoogle,
     EventoRemoto,
     VentanaDeEventos,
@@ -57,6 +58,9 @@ class GoogleFalso:
         self.revocados: list[str] = []
         self.tokens_de_exchange = None
         self.tokens_recibidos: list[str] = []
+        self.calendarios = [
+            CalendarioRemoto(id="primary", nombre="Principal", es_principal=True)
+        ]
 
     def exchange_code(self, code, verifier, redirect_uri):
         if self.errores:
@@ -69,7 +73,10 @@ class GoogleFalso:
         self.refreshes.append(refresh_token)
         return self.tokens_de_exchange or _tokens_nuevos()
 
-    def list_events(self, access_token, desde, hasta, sync_token=None):
+    def list_calendarios(self, access_token):
+        return self.calendarios
+
+    def list_events(self, access_token, desde, hasta, calendar_id, sync_token=None):
         self.tokens_recibidos.append(access_token)
         if self.errores:
             raise self.errores.pop(0)
@@ -109,15 +116,15 @@ class TokensFalsos(GoogleTokensRepositoryPort):
         self.borrado = True
         self.conexion = None
 
-    def sync_token(self, jwt):
+    def sync_token(self, jwt, calendar_id):
         self.jwt_recibidos.append(jwt)
         return self.marca
 
-    def guardar_sync_token(self, jwt, _u, marca):
+    def guardar_sync_token(self, jwt, _u, marca, calendar_id):
         self.jwt_recibidos.append(jwt)
         self.marca = marca
 
-    def borrar_sync_token(self, _t):
+    def borrar_sync_token(self, _t, calendar_id=None):
         self.marca = None
         self.marca_borrada = True
 

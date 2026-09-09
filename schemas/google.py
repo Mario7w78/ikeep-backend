@@ -31,6 +31,9 @@ class EventoImportadoResponse(BaseModel):
     inicio: datetime
     fin: datetime
     todo_el_dia: bool = False
+    #: De que calendario salio: el id del evento solo es unico dentro de su
+    #: calendario, y la vista mezcla todos los calendarios del usuario.
+    calendar_id: str = "primary"
 
 
 class CalendarioGoogleResponse(BaseModel):

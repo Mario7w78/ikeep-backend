@@ -319,7 +319,7 @@ def calendario_google(
         eventos=[
             EventoImportadoResponse(
                 id=e.id, titulo=e.titulo, inicio=e.inicio, fin=e.fin,
-                todo_el_dia=e.todo_el_dia,
+                todo_el_dia=e.todo_el_dia, calendar_id=e.calendar_id,
             )
             for e in resultado.eventos
         ],

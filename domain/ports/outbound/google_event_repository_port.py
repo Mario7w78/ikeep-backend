@@ -1,4 +1,4 @@
-"""Los eventos importados del calendario primario de Google.
+"""Los eventos importados de Google Calendar.
 
 Es una copia local, no la fuente: si la copia se atrasa, la proxima
 sincronizacion la alcanza. Por eso no hay entidad de dominio con
@@ -17,12 +17,17 @@ class EventoImportado:
     Con singleEvents=true cada repeticion de un evento periodico llega como
     su propio evento, con su id de instancia; nunca se expande recurrencia
     por nuestra cuenta.
+
+    `calendar_id` es parte de la identidad: el id del evento solo es unico
+    dentro de un calendario, y dos calendarios pueden compartir el mismo
+    evento con el mismo id.
     """
 
     id: str
     titulo: str
     inicio: datetime
     fin: datetime
+    calendar_id: str = "primary"
     todo_el_dia: bool = False
 
 

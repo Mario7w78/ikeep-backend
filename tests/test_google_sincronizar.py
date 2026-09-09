@@ -10,6 +10,7 @@ from datetime import date, datetime, timezone
 import pytest
 
 from domain.ports.outbound.google_calendar_port import (
+    CalendarioRemoto,
     ErrorDeGoogle,
     EventoRemoto,
     VentanaDeEventos,
@@ -36,12 +37,26 @@ class GoogleFalso:
 
     Los errores se consumen UNA vez: el 410 de la primera llamada no puede
     repetirse en el reintento completo, igual que en la vida real.
+
+    Con UN calendario los errores son una lista plana. Con varios pueden ser
+    un dict `{calendar_id: [errores]}` para que cada calendario tenga los
+    suyos; `respuestas` siempre es la secuencia de ventanas que contesta cada
+    llamada a list_events, en orden de llegada.
     """
 
-    def __init__(self, respuestas=None, errores=None):
+    def __init__(self, respuestas=None, errores=None, calendarios=None):
         self.respuestas = list(respuestas or [])
-        self.errores = list(errores or [])
+        # Lista plana (un calendario) o dict por calendar_id (varios).
+        self.errores = (
+            dict(errores) if isinstance(errores, dict) else list(errores or [])
+        )
+        self.calendarios = calendarios or [
+            CalendarioRemoto(id="primary", nombre="Principal", es_principal=True)
+        ]
+        # Solo las llamadas a list_events: las de calendarios van aparte para
+        # no confundir asserts que cuentan pasadas de eventos.
         self.llamadas = []
+        self.llamadas_calendarios = []
 
     def exchange_code(self, *a, **k):  # pragma: no cover - no se usa aqui
         raise NotImplementedError
@@ -52,24 +67,44 @@ class GoogleFalso:
     def revoke(self, *a, **k):  # pragma: no cover
         raise NotImplementedError
 
-    def list_events(self, access_token, desde, hasta, sync_token=None):
+    def list_calendarios(self, access_token):
+        self.llamadas_calendarios.append(access_token)
+        return self.calendarios
+
+    def list_events(self, access_token, desde, hasta, calendar_id, sync_token=None):
         self.llamadas.append({
             "access_token": access_token,
+            "calendar_id": calendar_id,
             "sync_token": sync_token,
             "desde": desde,
             "hasta": hasta,
         })
-        if self.errores:
+        if isinstance(self.errores, dict):
+            errores = self.errores.get(calendar_id) or []
+            if errores:
+                raise errores.pop(0)
+        elif self.errores:
             raise self.errores.pop(0)
         return self.respuestas.pop(0)
 
 
 class TokensFalsos:
     def __init__(self, marca_inicial=None):
-        self.marca = marca_inicial
+        self.marcas = {"primary": marca_inicial} if marca_inicial else {}
         self.marcas_guardadas = []
         self.marcas_borradas = 0
         self.jwt_recibidos: list[str] = []
+
+    @property
+    def marca(self):
+        return self.marcas.get("primary")
+
+    @marca.setter
+    def marca(self, valor):
+        if valor is None:
+            self.marcas.pop("primary", None)
+        else:
+            self.marcas["primary"] = valor
 
     # Los metodos que no usa sincronizar no existen: si alguien los llamara,
     # el test romperia en la cara. Eso es lo que queremos.
@@ -82,18 +117,21 @@ class TokensFalsos:
     def borrar(self, *_a):  # pragma: no cover
         raise NotImplementedError
 
-    def sync_token(self, jwt):
+    def sync_token(self, jwt, calendar_id):
         self.jwt_recibidos.append(jwt)
-        return self.marca
+        return self.marcas.get(calendar_id)
 
-    def guardar_sync_token(self, jwt, _u, marca):
+    def guardar_sync_token(self, jwt, _u, marca, calendar_id):
         self.jwt_recibidos.append(jwt)
-        self.marca = marca
-        self.marcas_guardadas.append(marca)
+        self.marcas[calendar_id] = marca
+        self.marcas_guardadas.append((calendar_id, marca))
 
-    def borrar_sync_token(self, jwt):
+    def borrar_sync_token(self, jwt, calendar_id=None):
         self.jwt_recibidos.append(jwt)
-        self.marca = None
+        if calendar_id is None:
+            self.marcas.clear()
+        else:
+            self.marcas.pop(calendar_id, None)
         self.marcas_borradas += 1
 
 
@@ -104,10 +142,11 @@ class EventosFalsos:
 
     def upsert(self, jwt, user_id, eventos):
         self.jwt_recibidos.append(jwt)
-        ids = {e.id for e in self.guardados}
+        clave = lambda e: (e.calendar_id, e.id)
+        idades = {clave(e) for e in self.guardados}
         for e in eventos:
-            if e.id in ids:
-                self.guardados = [e if x.id == e.id else x for x in self.guardados]
+            if clave(e) in idades:
+                self.guardados = [e if clave(x) == clave(e) else x for x in self.guardados]
             else:
                 self.guardados.append(e)
 
@@ -123,7 +162,7 @@ class EventosFalsos:
         raise NotImplementedError
 
 
-def _evento(id_="e1", dia=3, hora_inicio=10, duracion_horas=1, todo_el_dia=False):
+def _evento(id_="e1", dia=3, hora_inicio=10, duracion_horas=1, todo_el_dia=False, calendar_id="primary"):
     inicio = datetime(2026, 8, dia, hora_inicio, tzinfo=timezone.utc)
     if todo_el_dia:
         fin = datetime(2026, 8, dia + 1, tzinfo=timezone.utc)
@@ -131,7 +170,10 @@ def _evento(id_="e1", dia=3, hora_inicio=10, duracion_horas=1, todo_el_dia=False
         fin = datetime(
             2026, 8, dia, hora_inicio + duracion_horas, tzinfo=timezone.utc
         )
-    return EventoRemoto(id=id_, titulo=f"titulo-{id_}", inicio=inicio, fin=fin)
+    return EventoRemoto(
+        id=id_, titulo=f"titulo-{id_}", inicio=inicio, fin=fin,
+        calendar_id=calendar_id,
+    )
 
 
 @pytest.fixture
@@ -183,6 +225,7 @@ class TestPrimeraPasada:
             titulo="viejo",
             inicio=datetime(2026, 7, 5, 10, tzinfo=timezone.utc),
             fin=datetime(2026, 7, 5, 11, tzinfo=timezone.utc),
+            calendar_id="primary",
         )
 
         resultado = sincronizar(
@@ -336,6 +379,122 @@ class TestCredencialesSeparadas:
         assert {l["access_token"] for l in mundo["google"].llamadas} == {TOKEN_GOOGLE}
         assert set(mundo["tokens"].jwt_recibidos) == {JWT_SUPABASE}
         assert set(mundo["eventos"].jwt_recibidos) == {JWT_SUPABASE}
+
+
+class TestMultiCalendario:
+    """Una pasada por calendario, cada uno con su marca y su dedupe."""
+
+    @pytest.fixture
+    def mundo2(self):
+        calendarios = [
+            CalendarioRemoto(id="primary", nombre="Principal", es_principal=True),
+            CalendarioRemoto(id="trab1", nombre="Trabajo"),
+        ]
+        google = GoogleFalso(calendarios=calendarios)
+        tokens = TokensFalsos()
+        eventos = EventosFalsos()
+        return {"google": google, "tokens": tokens, "eventos": eventos}
+
+    def test_cada_calendario_recibe_su_llamada_y_su_id(self, mundo2):
+        mundo2["google"].respuestas.extend([
+            VentanaDeEventos([_evento(calendar_id="primary")], sync_token="st-1"),
+            VentanaDeEventos([_evento(dia=12, calendar_id="trab1")], sync_token="st-2"),
+        ])
+
+        resultado = sincronizar(
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo2["google"], mundo2["tokens"],
+            mundo2["eventos"], DESDE, HASTA,
+        )
+
+        assert mundo2["google"].llamadas_calendarios == [TOKEN_GOOGLE]
+        assert [l["calendar_id"] for l in mundo2["google"].llamadas] == [
+            "primary", "trab1",
+        ]
+        assert sorted(e.calendar_id for e in resultado.eventos) == [
+            "primary", "trab1",
+        ]
+
+    def test_el_mismo_evento_en_dos_calendarios_se_deduplica(self, mundo2):
+        # La misma clase compartida: mismo inicio, fin y titulo, id distinto.
+        clase = dict(
+            titulo="Clase Calc",
+            inicio=datetime(2026, 8, 3, 10, tzinfo=timezone.utc),
+            fin=datetime(2026, 8, 3, 11, tzinfo=timezone.utc),
+        )
+        mundo2["google"].respuestas.extend([
+            VentanaDeEventos([
+                EventoRemoto(id="a-1", calendar_id="primary", **clase)
+            ], sync_token="s"),
+            VentanaDeEventos([
+                EventoRemoto(id="b-1", calendar_id="trab1", **clase)
+            ], sync_token="s"),
+        ])
+
+        resultado = sincronizar(
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo2["google"], mundo2["tokens"],
+            mundo2["eventos"], DESDE, HASTA,
+        )
+
+        assert len(resultado.eventos) == 1
+        # Se conserva la copia del PRIMERO: el calendario principal.
+        assert resultado.eventos[0].calendar_id == "primary"
+
+    def test_el_titulo_vacio_no_colisiona_por_error(self, mundo2):
+        # Un evento sin titulo ("(sin titulo)") no debe fusionar dos eventos
+        # distintos que comparten hora pero son de dias diferentes.
+        mundo2["google"].respuestas.extend([
+            VentanaDeEventos([_evento(id_="x", dia=3), _evento(id_="y", dia=4)], sync_token="s"),
+            VentanaDeEventos([]),
+        ])
+
+        resultado = sincronizar(
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo2["google"], mundo2["tokens"],
+            mundo2["eventos"], DESDE, HASTA,
+        )
+
+        assert [e.id for e in resultado.eventos] == ["x", "y"]
+
+    def test_un_410_en_un_calendario_no_toca_los_demas(self, mundo2):
+        # 'trab1' ya tenia marca; Google responde 410 SOLO para ese calendario
+        # (primary completa va primero y no debe verse afectada).
+        mundo2["tokens"].marcas["trab1"] = "st-muerta"
+        mundo2["google"].errores = {"trab1": [ErrorDeGoogle("gone", "marca muerta")]}
+        mundo2["google"].respuestas.extend([
+            VentanaDeEventos([_evento(calendar_id="primary")], sync_token="st-p"),
+            VentanaDeEventos([_evento(id_="trab", calendar_id="trab1")], sync_token="st-fresca"),
+        ])
+
+        resultado = sincronizar(
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo2["google"], mundo2["tokens"],
+            mundo2["eventos"], DESDE, HASTA,
+        )
+
+        # primary completa (1) + trab incremental muerta (1) + trab completa (1).
+        assert len(mundo2["google"].llamadas) == 3
+        assert mundo2["google"].llamadas[1]["sync_token"] == "st-muerta"
+        assert mundo2["google"].llamadas[2]["sync_token"] is None
+        assert mundo2["tokens"].marcas["trab1"] == "st-fresca"
+        assert mundo2["tokens"].marcas_borradas == 1
+        assert sorted(e.calendar_id for e in resultado.eventos) == ["primary", "trab1"]
+
+    def test_las_marcas_son_por_calendario(self, mundo2):
+        # 'trab1' ya sincronizo; 'primary' todavia no. Cada uno con su camino.
+        mundo2["tokens"].marcas["trab1"] = "st-trabajo"
+        mundo2["google"].respuestas.extend([
+            VentanaDeEventos([_evento(calendar_id="primary")], sync_token="st-primaria"),
+            VentanaDeEventos([], sync_token=None),
+        ])
+
+        sincronizar(
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo2["google"], mundo2["tokens"],
+            mundo2["eventos"], DESDE, HASTA,
+        )
+
+        assert mundo2["google"].llamadas[0]["sync_token"] is None   # primary completa
+        assert mundo2["google"].llamadas[1]["sync_token"] == "st-trabajo"  # trab incremental
+        assert mundo2["tokens"].marcas["primary"] == "st-primaria"
+        # La incremental no renueva su marca (contrato existente).
+        assert mundo2["tokens"].marcas["trab1"] == "st-trabajo"
 
 
 class TestDiasSolapados:

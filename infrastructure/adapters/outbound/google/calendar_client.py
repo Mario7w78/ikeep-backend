@@ -22,8 +22,10 @@ filtra; la completa es la acotada a la ventana.
 
 import httpx
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 
 from domain.ports.outbound.google_calendar_port import (
+    CalendarioRemoto,
     ErrorDeGoogle,
     EventoRemoto,
     GoogleCalendarPort,
@@ -34,7 +36,8 @@ from infrastructure.config.settings import get_settings
 
 _URL_TOKEN = "https://oauth2.googleapis.com/token"
 _URL_REVOCAR = "https://oauth2.googleapis.com/revoke"
-_URL_EVENTOS = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
+_URL_CALENDARIOS = "https://www.googleapis.com/calendar/v3/users/me/calendarList"
+_URL_EVENTOS = "https://www.googleapis.com/calendar/v3/calendars/{calendario}/events"
 
 #: Errores de token endpoint que significan "conectate de nuevo" y no
 #: "reintenta": el refresh token murio o las credenciales del servidor.
@@ -98,8 +101,10 @@ class HttpxGoogleCalendar(GoogleCalendarPort):
         access_token: str,
         desde,
         hasta,
+        calendar_id: str,
         sync_token: str | None = None,
     ) -> VentanaDeEventos:
+        url = _URL_EVENTOS.format(calendario=quote(calendar_id, safe=""))
         base: dict = {
             "singleEvents": "true",
             # Ordenado por inicio para que las paginas sean estables.
@@ -117,7 +122,7 @@ class HttpxGoogleCalendar(GoogleCalendarPort):
         with _cliente() as cliente:
             while True:
                 respuesta = cliente.get(
-                    _URL_EVENTOS,
+                    url,
                     params=base,
                     headers={"Authorization": f"Bearer {access_token}"},
                 )
@@ -125,7 +130,7 @@ class HttpxGoogleCalendar(GoogleCalendarPort):
 
                 cuerpo = respuesta.json()
                 eventos.extend(
-                    _evento_de(item) for item in cuerpo.get("items", [])
+                    _evento_de(item, calendar_id) for item in cuerpo.get("items", [])
                 )
                 if cuerpo.get("nextPageToken"):
                     base["pageToken"] = cuerpo["nextPageToken"]
@@ -136,6 +141,52 @@ class HttpxGoogleCalendar(GoogleCalendarPort):
                 break
 
         return VentanaDeEventos(eventos=eventos, sync_token=sync_nuevo)
+
+    def list_calendarios(self, access_token: str) -> list[CalendarioRemoto]:
+        """Los calendarios con acceso, el principal primero.
+
+        calendarList pagina con `pageToken` y `nextPageToken`: se recorren
+        las paginas para no devolver solo la primera. `minAccessRole=reader`
+        deja fuera los calendarios a los que el usuario es solo invitado y
+        no puede leer.
+        """
+        resultados: list[CalendarioRemoto] = []
+        page_token: str | None = None
+        parametros: dict = {"minAccessRole": "reader", "maxResults": 250}
+        with _cliente() as cliente:
+            while True:
+                if page_token:
+                    parametros["pageToken"] = page_token
+                respuesta = cliente.get(
+                    _URL_CALENDARIOS,
+                    params=parametros,
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+                _exigir_ok(respuesta)
+                cuerpo = respuesta.json()
+                for item in cuerpo.get("items", []):
+                    resultados.append(
+                        CalendarioRemoto(
+                            id=str(item["id"]),
+                            nombre=str(item.get("summary") or "(sin nombre)"),
+                            es_principal=bool(item.get("primary", False)),
+                        )
+                    )
+                page_token = cuerpo.get("nextPageToken")
+                if not page_token:
+                    break
+
+        # El principal adelante: si el mismo evento aparece en dos
+        # calendarios, la deduplicacion conserva el primero.
+        return sorted(
+            resultados, key=lambda c: (not c.es_principal, c.nombre.lower())
+        )
+
+        # El principal adelante: si el mismo evento aparece en dos
+        # calendarios, la deduplicacion conserva el primero.
+        return sorted(
+            resultados, key=lambda c: (not c.es_principal, c.nombre.lower())
+        )
 
     def revoke(self, token: str) -> None:
         with _cliente() as cliente:
@@ -208,7 +259,7 @@ def _exigir_ok(respuesta: httpx.Response) -> None:
     )
 
 
-def _evento_de(item: dict) -> EventoRemoto:
+def _evento_de(item: dict, calendar_id: str) -> EventoRemoto:
     """Del JSON de Google al dato de dominio.
 
     Un evento de todo el dia no trae `dateTime`, trae `date`: solo el dia, y
@@ -223,6 +274,7 @@ def _evento_de(item: dict) -> EventoRemoto:
         titulo=item.get("summary") or "(sin titulo)",
         inicio=_momento_de(inicio),
         fin=_momento_de(fin),
+        calendar_id=calendar_id,
         todo_el_dia=todo_el_dia,
     )
 

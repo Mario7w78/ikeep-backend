@@ -27,7 +27,7 @@ class SupabaseGoogleEventsRepository(GoogleEventsRepositoryPort):
             .table(TABLA)
             .upsert(
                 [_evento_a_fila(user_id, e) for e in eventos],
-                on_conflict="user_id,event_id",
+                on_conflict="user_id,calendar_id,event_id",
             )
             .execute()
         )
@@ -57,6 +57,7 @@ def _evento_a_fila(user_id: str, evento: EventoImportado) -> dict[str, Any]:
     return {
         "user_id": user_id,
         "event_id": evento.id,
+        "calendar_id": evento.calendar_id,
         "titulo": evento.titulo,
         "inicio": evento.inicio.isoformat(),
         "fin": evento.fin.isoformat(),
@@ -70,6 +71,7 @@ def fila_a_evento(fila: dict[str, Any]) -> EventoImportado:
         titulo=fila["titulo"],
         inicio=_a_momento(fila["inicio"]),
         fin=_a_momento(fila["fin"]),
+        calendar_id=fila.get("calendar_id") or "primary",
         todo_el_dia=bool(fila.get("todo_el_dia", False)),
     )
 

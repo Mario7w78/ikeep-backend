@@ -16,10 +16,12 @@ La estrategia es la de Google Calendar misma:
 """
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from domain.ports.outbound.google_calendar_port import (
     ErrorDeGoogle,
+    EventoRemoto,
     GoogleCalendarPort,
 )
 from domain.ports.outbound.google_event_repository_port import (
@@ -32,6 +34,14 @@ from domain.ports.outbound.google_token_repository_port import (
 
 #: Cuantos dias se amplian por lado la ventana de una pasada completa.
 _AMPLIACION = timedelta(days=7)
+
+#: La zona en la que viven los `desde`/`hasta` del router. Son los dias del
+#: usuario (la app los arma con `rangoDelMes` en hora local), asi que la
+#: ventana se interpreta en LA HORA DEL USUARIO, no en UTC: con medianoche
+#: UTC un evento del ultimo dia del rango despues de las 19:00 (Peru, UTC-5)
+#: quedaba fuera del `del_rango` y se perdia sin rastro. America/Lima no
+#: tiene horario de verano: el offset es fijo, no hay doblez.
+_ZONA_LOCAL = ZoneInfo("America/Lima")
 
 
 class NoConectado(Exception):
@@ -70,59 +80,86 @@ def sincronizar(
     Mezclarlos rompe todo en vivo aunque los fakes no lo noten: por eso
     existen como parametros separados desde la firma.
 
-    El 410 NO es un fallo: Google diciendo 'esa marca ya no vale'. Se borra
-    la marca, se repite completa y el usuario ve su calendario igual.
+    Una pasada por CADA calendario: Google entrega syncToken por calendario
+    y un evento solo es unico dentro de su calendario, asi que mezclarlos
+    rompe la marca y la deduplicacion. El 410 NO es un fallo: Google diciendo
+    'esa marca ya no vale' se borra y se repite completa para ese calendario.
     """
-    marca = tokens.sync_token(jwt_supabase)
+    calendarios = google.list_calendarios(token_google)
 
-    if marca:
-        try:
-            ventana = google.list_events(token_google, _a_momento(desde),
-                                         _a_momento(hasta + timedelta(days=1)),
-                                         sync_token=marca)
-        except ErrorDeGoogle as exc:
-            if exc.clase != "gone":
-                raise
-            # La marca murio. Sin marca, la proxima pasada es completa.
-            tokens.borrar_sync_token(jwt_supabase)
-            return _pasada_completa(
-                token_google, jwt_supabase, user_id, google, tokens,
-                eventos, desde, hasta
+    todos: list[EventoRemoto] = []
+    alguna_completa = False
+    for calendario in calendarios:
+        marca = tokens.sync_token(jwt_supabase, calendario.id)
+        completa = False
+
+        if marca:
+            try:
+                ventana = google.list_events(
+                    token_google,
+                    _a_momento(desde),
+                    _a_momento(hasta + timedelta(days=1)),
+                    calendar_id=calendario.id,
+                    sync_token=marca,
+                )
+            except ErrorDeGoogle as exc:
+                if exc.clase != "gone":
+                    raise
+                # La marca de ESTE calendario murio: se borra y la de abajo
+                # hace la pasada completa del calendario, sin tocar la de
+                # los demas.
+                tokens.borrar_sync_token(jwt_supabase, calendario.id)
+                marca = None
+
+        if not marca:
+            completa = True
+            ventana = google.list_events(
+                token_google,
+                _a_momento(desde - _AMPLIACION),
+                _a_momento(hasta + timedelta(days=1) + _AMPLIACION),
+                calendar_id=calendario.id,
             )
-    else:
-        return _pasada_completa(
-            token_google, jwt_supabase, user_id, google, tokens,
-            eventos, desde, hasta
-        )
 
-    _aplicar_cambios(jwt_supabase, user_id, eventos, ventana.eventos)
+        if ventana.sync_token and completa:
+            # La marca nueva se persiste SOLO si la pasada fue completa: la
+            # incremental no renueva la marca (contrato existente) y si la
+            # guardara se podrian saltar cambios entre marcas.
+            tokens.guardar_sync_token(
+                jwt_supabase, user_id, ventana.sync_token, calendario.id
+            )
+        todos.extend(ventana.eventos)
+        alguna_completa = alguna_completa or completa
+
+    _aplicar_cambios(jwt_supabase, user_id, eventos, _deduplicar(todos))
     return Sincronizacion(
         eventos=eventos.del_rango(
             jwt_supabase, _a_momento(desde), _a_momento(hasta + timedelta(days=1))
         ),
-        fue_completa=False,
+        fue_completa=alguna_completa,
     )
 
 
-def _pasada_completa(
-    token_google, jwt_supabase, user_id, google, tokens, eventos, desde, hasta
-) -> Sincronizacion:
-    ventana = google.list_events(
-        token_google,
-        _a_momento(desde - _AMPLIACION),
-        _a_momento(hasta + timedelta(days=1) + _AMPLIACION),
-    )
-    _aplicar_cambios(jwt_supabase, user_id, eventos, ventana.eventos)
+def _deduplicar(remotos: list[EventoRemoto]) -> list[EventoRemoto]:
+    """Mismo evento real llegando desde dos calendarios, una sola fila.
 
-    if ventana.sync_token:
-        tokens.guardar_sync_token(jwt_supabase, user_id, ventana.sync_token)
-
-    return Sincronizacion(
-        eventos=eventos.del_rango(
-            jwt_supabase, _a_momento(desde), _a_momento(hasta + timedelta(days=1))
-        ),
-        fue_completa=True,
-    )
+    Ocurre con los calendarios compartidos: la misma clase en el calendario
+    del trabajo y en el personal aparece dos veces con el mismo inicio, fin y
+    titulo (el id, en cambio, puede diferir). Se conserva el PRIMERO, que el
+    orquestador garantiza que es el del calendario principal, y se suelta el
+    duplicado. Dos eventos DISTINTOS que casualmente coinciden en hora y
+    titulo son tan parecidos que no vale la pena dibujarlos dos veces.
+    """
+    vistos: set[tuple] = set()
+    unicos: list[EventoRemoto] = []
+    for evento in remotos:
+        # todo_el_dia no tiene hora: se identifica por su fecha.
+        momento = evento.inicio.date() if evento.todo_el_dia else (evento.inicio, evento.fin)
+        clave = (momento, evento.titulo)
+        if clave in vistos:
+            continue
+        vistos.add(clave)
+        unicos.append(evento)
+    return unicos
 
 
 def _aplicar_cambios(jwt_supabase, user_id, eventos_repo, remotos) -> None:
@@ -135,6 +172,7 @@ def _aplicar_cambios(jwt_supabase, user_id, eventos_repo, remotos) -> None:
                 titulo=e.titulo,
                 inicio=e.inicio,
                 fin=e.fin,
+                calendar_id=e.calendar_id,
                 todo_el_dia=e.todo_el_dia,
             )
             for e in remotos
@@ -184,6 +222,8 @@ def _es_medianoche(momento: datetime) -> bool:
 
 
 def _a_momento(fecha: date) -> datetime:
-    # Medianoches UTC: la base guarda timestamptz y el rango tiene que ser
-    # interpretado SIEMPRE igual, aqui y en del_rango.
-    return datetime(fecha.year, fecha.month, fecha.day, tzinfo=timezone.utc)
+    # Medianoches LOCALES: la base guarda timestamptz y el rango tiene que ser
+    # interpretado SIEMPRE igual, aqui, en del_rango y en la ventana que se le
+    # pide a Google. UTC restaba cinco horas al mes del usuario (y sumaba otras
+    # cinco al final), y eso hacia aparecer/desaparecer dias en los bordes.
+    return datetime(fecha.year, fecha.month, fecha.day, tzinfo=_ZONA_LOCAL)

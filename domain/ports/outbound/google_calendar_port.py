@@ -37,17 +37,42 @@ class TokensDeGoogle:
 
 
 @dataclass(frozen=True)
+class CalendarioRemoto:
+    """Un calendario de Google al que el usuario dio acceso.
+
+    La vista de la app mezcla TODOS los calendarios del usuario, no solo el
+    principal: el horario de mucha gente vive en calendarios secundarios
+    (trabajo, universidad) y leer solo `primary` hacia que los eventos de la
+    semana actual parecieran "aparecer desde el mes siguiente".
+
+    `id` es el identificador con el que Google distingue los calendarios; el
+    principal se puede pedir por el alias `primary` pero no siempre se llama
+    asi en calendarList, por eso el flag.
+    """
+
+    id: str
+    nombre: str
+    es_principal: bool = False
+
+
+@dataclass(frozen=True)
 class EventoRemoto:
     """Un evento tal como llega de Google Calendar.
 
     Con singleEvents=true cada repeticion llega como su propio evento, asi
     que nadie expande recurrencias mas abajo.
+
+    `calendar_id` identifica de que calendario salio: el id del evento solo
+    es unico DENTRO de un calendario, y la copia local lo necesita junto.
     """
 
     id: str
     titulo: str
     inicio: datetime
     fin: datetime
+    #: Por defecto "primary" para no obligar a quienes construyen eventos de
+    #: prueba a repetir el id; el adaptador SIEMPRE lo llena con el real.
+    calendar_id: str = "primary"
     todo_el_dia: bool = False
 
 
@@ -80,20 +105,29 @@ class GoogleCalendarPort(ABC):
         """Un access token nuevo a partir del refresh token guardado."""
 
     @abstractmethod
+    def list_calendarios(self, access_token: str) -> list[CalendarioRemoto]:
+        """Los calendarios que el usuario dio permiso de leer."""
+
+    @abstractmethod
     def list_events(
         self,
         access_token: str,
         desde: datetime,
         hasta: datetime,
+        calendar_id: str,
         sync_token: str | None = None,
     ) -> VentanaDeEventos:
-        """Los eventos que se solapan con la ventana.
+        """Los eventos de ese calendario que se solapan con la ventana.
 
         Sin `sync_token` hace una pasada completa acotada a [desde, hasta].
         Con el, Google manda solo cambios desde esa marca —y entonces la
         ventana no viaja: Google rechaza las dos cosas juntas—. Si la marca
         ya no vale, levanta ErrorDeGoogle con clase 'gone' para que quien
         orquesta decida reintentar completo.
+
+        `calendar_id` es por calendario: la ventana a la que se le piden
+        eventos, y la marca, viven en UN calendario cada una. Google no
+        mezcla.
         """
 
     @abstractmethod

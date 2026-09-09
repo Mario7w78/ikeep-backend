@@ -92,11 +92,12 @@ class SupabaseGoogleTokensRepository(GoogleTokensRepositoryPort):
         # falta.
         client_for_user(access_token).table(TABLA).delete().execute()
 
-    def sync_token(self, access_token: str) -> str | None:
+    def sync_token(self, access_token: str, calendar_id: str) -> str | None:
         respuesta = (
             client_for_user(access_token)
             .table(TABLA_SYNC)
             .select("sync_token")
+            .eq("calendar_id", calendar_id)
             .limit(1)
             .execute()
         )
@@ -104,17 +105,34 @@ class SupabaseGoogleTokensRepository(GoogleTokensRepositoryPort):
         return fila.get("sync_token")
 
     def guardar_sync_token(
-        self, access_token: str, user_id: str, sync_token: str
+        self,
+        access_token: str,
+        user_id: str,
+        sync_token: str,
+        calendar_id: str,
     ) -> None:
         (
             client_for_user(access_token)
             .table(TABLA_SYNC)
-            .upsert({"user_id": user_id, "sync_token": sync_token})
+            .upsert(
+                {
+                    "user_id": user_id,
+                    "calendar_id": calendar_id,
+                    "sync_token": sync_token,
+                },
+                on_conflict="user_id,calendar_id",
+            )
             .execute()
         )
 
-    def borrar_sync_token(self, access_token: str) -> None:
-        client_for_user(access_token).table(TABLA_SYNC).delete().execute()
+    def borrar_sync_token(self, access_token: str, calendar_id: str | None = None) -> None:
+        query = client_for_user(access_token).table(TABLA_SYNC)
+        if calendar_id is not None:
+            query = query.eq("calendar_id", calendar_id)
+        # Sin filtro por user_id y a proposito: RLS acota las filas al dueno
+        # del token, y filtrar ademas seria fingir una certeza que no hace
+        # falta.
+        query.delete().execute()
 
 
 def _a_momento(valor):

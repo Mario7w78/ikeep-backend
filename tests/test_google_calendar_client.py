@@ -133,7 +133,7 @@ class TestListEvents:
             return_value=self._respuesta_eventos([], nextSyncToken="st-1")
         )
 
-        ventana = google.list_events("at", DESDE, HASTA)
+        ventana = google.list_events("at", DESDE, HASTA, calendar_id="primary")
 
         enviado = ruta.calls[0].request.url.params
         assert enviado["singleEvents"] == "true"
@@ -144,7 +144,7 @@ class TestListEvents:
             return_value=self._respuesta_eventos([])
         )
 
-        google.list_events("at", DESDE, HASTA)
+        google.list_events("at", DESDE, HASTA, calendar_id="primary")
 
         params = ruta.calls[0].request.url.params
         assert "timeMin" in params and "timeMax" in params
@@ -157,7 +157,7 @@ class TestListEvents:
             return_value=self._respuesta_eventos([])
         )
 
-        google.list_events("at", DESDE, HASTA, sync_token="st-vigente")
+        google.list_events("at", DESDE, HASTA, calendar_id="primary", sync_token="st-vigente")
 
         params = ruta.calls[0].request.url.params
         assert params["syncToken"] == "st-vigente"
@@ -176,7 +176,7 @@ class TestListEvents:
         )
         ruta = respx.get(URL_EVENTOS).mock(side_effect=[pagina_1, pagina_2])
 
-        ventana = google.list_events("at", DESDE, HASTA)
+        ventana = google.list_events("at", DESDE, HASTA, calendar_id="primary")
 
         assert [e.id for e in ventana.eventos] == ["e1", "e2"]
         assert ventana.sync_token == "st-final"
@@ -194,7 +194,7 @@ class TestListEvents:
             )
         )
 
-        evento = google.list_events("at", DESDE, HASTA).eventos[0]
+        evento = google.list_events("at", DESDE, HASTA, calendar_id="primary").eventos[0]
 
         assert evento.todo_el_dia is True
         assert evento.inicio.date().isoformat() == "2026-08-10"
@@ -203,7 +203,7 @@ class TestListEvents:
         respx.get(URL_EVENTOS).mock(return_value=httpx.Response(401))
 
         with pytest.raises(ErrorDeGoogle) as capturado:
-            google.list_events("at-vencido", DESDE, HASTA)
+            google.list_events("at-vencido", DESDE, HASTA, calendar_id="primary")
 
         assert capturado.value.clase == "sesion"
 
@@ -211,7 +211,7 @@ class TestListEvents:
         respx.get(URL_EVENTOS).mock(return_value=httpx.Response(410))
 
         with pytest.raises(ErrorDeGoogle) as capturado:
-            google.list_events("at", DESDE, HASTA, sync_token="st-muerto")
+            google.list_events("at", DESDE, HASTA, calendar_id="primary", sync_token="st-muerto")
 
         assert capturado.value.clase == "gone"
 
@@ -223,7 +223,7 @@ class TestListEvents:
         )
 
         with pytest.raises(ErrorDeGoogle) as capturado:
-            google.list_events("at", DESDE, HASTA)
+            google.list_events("at", DESDE, HASTA, calendar_id="primary")
 
         assert capturado.value.clase == "quota"
 

@@ -126,7 +126,7 @@ class TestTokensRepo:
         )
 
         with parche:
-            assert repo.sync_token(TOKEN) is None
+            assert repo.sync_token(TOKEN, "primary") is None
 
 
 class TestEventsRepo:
@@ -161,7 +161,10 @@ class TestEventsRepo:
         filas = llamada.args[0]
         assert filas[0]["user_id"] == USUARIO
         assert filas[0]["event_id"] == "evt-1"
-        assert llamada.kwargs["on_conflict"] == "user_id,event_id"
+        # El id del evento solo es unico dentro de su calendario: la clave
+        # compuesta incluye calendar_id.
+        assert filas[0]["calendar_id"] == "primary"
+        assert llamada.kwargs["on_conflict"] == "user_id,calendar_id,event_id"
 
     def test_del_rango_pilla_los_que_se_solapan(self):
         # Un evento de tres dias que empezo antes del rango y sigue abierto
