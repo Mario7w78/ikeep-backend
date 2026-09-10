@@ -46,7 +46,7 @@ class ApplicationContainer(containers.DeclarativeContainer):
         OpenAICompatibleAdapter,
         api_key=providers.Callable(lambda s: s.GROQ_API_KEY, settings),
         base_url="https://api.groq.com/openai/v1",
-        default_model="llama-3.3-70b-versatile",
+        default_model="openai/gpt-oss-120b",
     )
 
     cerebras_adapter = providers.Singleton(
@@ -94,7 +94,7 @@ class ApplicationContainer(containers.DeclarativeContainer):
         OpenAIToolsAdapter,
         api_key=providers.Callable(lambda s: s.GROQ_API_KEY, settings),
         base_url="https://api.groq.com/openai/v1",
-        default_model="llama-3.3-70b-versatile",
+        default_model="openai/gpt-oss-120b",
     )
 
     cerebras_tools_adapter = providers.Singleton(
