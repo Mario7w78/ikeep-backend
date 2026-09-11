@@ -46,3 +46,12 @@ class ActividadUsuario:
     #: Si esta puesta, la actividad ocurre una sola vez ese dia y los dias de
     #: la semana no aplican. Es lo que permite representar un parcial.
     fecha_unica: str | None = None
+    #: El evento de Google del que se materializo esta actividad, si viene de
+    #: Google. NULL para las creadas a mano. Junto con `google_calendar_id`
+    #: es la clave anti-duplicacion (indice unico parcial en la BD): el mismo
+    #: evento solo puede materializarse una vez, y desconectar Google borra
+    #: justamente estas filas.
+    google_event_id: str | None = None
+    #: El calendario de donde salio el evento (un evento solo es unico dentro
+    #: de su calendario; dos calendarios pueden traer ids repetidos).
+    google_calendar_id: str | None = None

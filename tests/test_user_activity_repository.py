@@ -37,6 +37,8 @@ FILA = {
     "day_to": None,
     "is_anchor": True,
     "fecha_unica": None,
+    "google_event_id": None,
+    "google_calendar_id": None,
 }
 
 

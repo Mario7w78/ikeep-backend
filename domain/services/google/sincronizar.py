@@ -16,9 +16,11 @@ La estrategia es la de Google Calendar misma:
 """
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
+from hashlib import sha256
 from zoneinfo import ZoneInfo
 
+from domain.entities.user_activity import ActividadUsuario
 from domain.ports.outbound.google_calendar_port import (
     ErrorDeGoogle,
     EventoRemoto,
@@ -30,6 +32,9 @@ from domain.ports.outbound.google_event_repository_port import (
 )
 from domain.ports.outbound.google_token_repository_port import (
     GoogleTokensRepositoryPort,
+)
+from domain.ports.outbound.user_activity_repository_port import (
+    ActividadUsuarioRepositoryPort,
 )
 
 #: Cuantos dias se amplian por lado la ventana de una pasada completa.
@@ -65,6 +70,7 @@ def sincronizar(
     google: GoogleCalendarPort,
     tokens: GoogleTokensRepositoryPort,
     eventos: GoogleEventsRepositoryPort,
+    actividades: ActividadUsuarioRepositoryPort,
     desde: date,
     hasta: date,
 ) -> Sincronizacion:
@@ -130,7 +136,7 @@ def sincronizar(
         todos.extend(ventana.eventos)
         alguna_completa = alguna_completa or completa
 
-    _aplicar_cambios(jwt_supabase, user_id, eventos, _deduplicar(todos))
+    _aplicar_cambios(jwt_supabase, user_id, eventos, actividades, _deduplicar(todos))
     return Sincronizacion(
         eventos=eventos.del_rango(
             jwt_supabase, _a_momento(desde), _a_momento(hasta + timedelta(days=1))
@@ -162,7 +168,13 @@ def _deduplicar(remotos: list[EventoRemoto]) -> list[EventoRemoto]:
     return unicos
 
 
-def _aplicar_cambios(jwt_supabase, user_id, eventos_repo, remotos) -> None:
+def _aplicar_cambios(
+    jwt_supabase,
+    user_id,
+    eventos_repo,
+    actividades_repo,
+    remotos,
+) -> None:
     eventos_repo.upsert(
         jwt_supabase,
         user_id,
@@ -178,6 +190,92 @@ def _aplicar_cambios(jwt_supabase, user_id, eventos_repo, remotos) -> None:
             for e in remotos
         ],
     )
+
+    # Cada evento se materializa como actividad de Lotus: un bloque fijo con
+    # su hora, para que aparezca en el calendario propio y el horario se arme
+    # alrededor (no queda "solo en la vista mensual").
+    for e in remotos:
+        actividades_repo.save(jwt_supabase, _a_actividad(user_id, e))
+
+
+_MAX_TITULO = 200
+
+
+def _a_actividad(user_id: str, evento: EventoRemoto) -> ActividadUsuario:
+    """Del evento remoto a una actividad fija guardable.
+
+    Un evento de Google llega YA expandido (singleEvents=true): una instancia
+    por fecha concreta. Se materializa como actividad con `fecha_unica` — el
+    paralelo de Lotus para "pasa este dia" — y la ocurrencia se genera al
+    vuelo en el calendario propio.
+
+    `days_config` conserva la hora como la guarda el cliente (ISO en UTC, que
+    el solver convierte a local con su desfase). `dias_habilitados` queda
+    vacio a proposito: si no, el flattener repeteria el parcial todos los
+    jueves; la fecha ya lo fija.
+
+    El id es DETERMINISTA: deriva del evento (user + calendario + event_id),
+    así un re-sync pisa la misma fila en vez de crear una copia. La garantia
+    fuerte la da el indice unico parcial (user, calendar, event) de la BD.
+    """
+    local = evento.inicio.astimezone(_ZONA_LOCAL)
+    dia = _NOMBRE_DIA[local.weekday()]
+    hora_inicio = evento.inicio.astimezone(timezone.utc)
+    hora_fin = evento.fin.astimezone(timezone.utc)
+    duracion = max(0, int((evento.fin - evento.inicio).total_seconds() // 60))
+
+    if evento.todo_el_dia:
+        config: dict = {}
+    else:
+        config = {
+            dia: {
+                "partitions": [
+                    {
+                        "startHour": hora_inicio.isoformat(),
+                        "endHour": hora_fin.isoformat(),
+                        "durationTime": duracion,
+                    }
+                ],
+                "groupId": 0,
+            }
+        }
+
+    return ActividadUsuario(
+        id=_id_de_evento(user_id, evento),
+        propietario_id=user_id,
+        nombre=evento.titulo[: _MAX_TITULO] or "(sin titulo)",
+        tipo="FIXED",
+        area="estudio",
+        dias_habilitados=[],
+        config_por_dia=config,
+        fecha_unica=_fecha_unica(evento),
+        google_event_id=evento.id,
+        google_calendar_id=evento.calendar_id,
+    )
+
+
+_NOMBRE_DIA: tuple[str, ...] = (
+    "Lunes",
+    "Martes",
+    "Miercoles",
+    "Jueves",
+    "Viernes",
+    "Sabado",
+    "Domingo",
+)
+
+
+def _id_de_evento(user_id: str, evento: EventoRemoto) -> str:
+    semilla = f"{user_id}|{evento.calendar_id}|{evento.id}"
+    return "google-" + sha256(semilla.encode()).hexdigest()[:48]
+
+
+def _fecha_unica(evento: EventoRemoto) -> str:
+    """El día en el huso del usuario; un evento multi-día se ancla al inicio."""
+    if not evento.todo_el_dia:
+        return evento.inicio.astimezone(_ZONA_LOCAL).date().isoformat()
+    # Todo el día: Google manda `fin` EXCLUSIVO — el 10 al 11 es solo el 10.
+    return evento.inicio.date().isoformat()
 
 
 def dias_solapados(evento, desde: date, hasta: date) -> set[date]:

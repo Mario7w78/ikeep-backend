@@ -162,6 +162,33 @@ class EventosFalsos:
         raise NotImplementedError
 
 
+class ActividadesFalsas:
+    """El puerto de actividades de Lotus, guardando en memoria.
+
+    Replica el upsert por `id` del adaptador real: materializar dos veces el
+    mismo evento (mismo id determinista) pisa la fila, no duplica.
+    """
+
+    def __init__(self):
+        self.guardadas: list = []
+        self.jwt_recibidos: list[str] = []
+
+    def save(self, jwt, actividad):
+        self.jwt_recibidos.append(jwt)
+        for i, existente in enumerate(self.guardadas):
+            if existente.id == actividad.id:
+                self.guardadas[i] = actividad
+                return actividad
+        self.guardadas.append(actividad)
+        return actividad
+
+    def delete(self, *_a):  # pragma: no cover
+        raise NotImplementedError
+
+    def borrar_importadas_desde_google(self, *_a):  # pragma: no cover
+        raise NotImplementedError
+
+
 def _evento(id_="e1", dia=3, hora_inicio=10, duracion_horas=1, todo_el_dia=False, calendar_id="primary"):
     inicio = datetime(2026, 8, dia, hora_inicio, tzinfo=timezone.utc)
     if todo_el_dia:
@@ -172,7 +199,7 @@ def _evento(id_="e1", dia=3, hora_inicio=10, duracion_horas=1, todo_el_dia=False
         )
     return EventoRemoto(
         id=id_, titulo=f"titulo-{id_}", inicio=inicio, fin=fin,
-        calendar_id=calendar_id,
+        calendar_id=calendar_id, todo_el_dia=todo_el_dia,
     )
 
 
@@ -181,7 +208,13 @@ def mundo():
     google = GoogleFalso()
     tokens = TokensFalsos()
     eventos = EventosFalsos()
-    return {"google": google, "tokens": tokens, "eventos": eventos}
+    actividades = ActividadesFalsas()
+    return {
+        "google": google,
+        "tokens": tokens,
+        "eventos": eventos,
+        "actividades": actividades,
+    }
 
 
 class TestPrimeraPasada:
@@ -191,7 +224,7 @@ class TestPrimeraPasada:
         )
 
         resultado = sincronizar(
-            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"], mundo["eventos"],
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"], mundo["eventos"], mundo["actividades"],
             DESDE, HASTA,
         )
 
@@ -206,7 +239,7 @@ class TestPrimeraPasada:
         mundo["google"].respuestas.append(VentanaDeEventos([]))
 
         sincronizar(
-            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"], mundo["eventos"],
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"], mundo["eventos"], mundo["actividades"],
             DESDE, HASTA,
         )
 
@@ -229,11 +262,152 @@ class TestPrimeraPasada:
         )
 
         resultado = sincronizar(
-            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"], mundo["eventos"],
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"], mundo["eventos"], mundo["actividades"],
             DESDE, HASTA,
         )
 
         assert [e.id for e in resultado.eventos] == ["dentro"]
+
+
+class TestMaterializacionDeActividades:
+    """Los eventos importados viven como actividades de Lotus en la BD.
+
+    El item 5: un bloque de Google no es solo una mancha gris en el mes, es
+    una actividad `FIXED` con su fecha, su hora y el area por defecto. La
+    deduplicacion se apoya en el id determinista: re-sincronizar pisa la misma
+    fila en vez de crear una copia.
+    """
+
+    def test_cada_evento_se_convierte_en_actividad_fija(self, mundo):
+        mundo["google"].respuestas.append(
+            VentanaDeEventos([_evento("e1", dia=3, hora_inicio=10, duracion_horas=2)])
+        )
+
+        sincronizar(
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"],
+            mundo["eventos"], mundo["actividades"], DESDE, HASTA,
+        )
+
+        assert len(mundo["actividades"].guardadas) == 1
+        actividad = mundo["actividades"].guardadas[0]
+        assert actividad.tipo == "FIXED"
+        assert actividad.nombre == "titulo-e1"
+        assert actividad.area == "estudio"
+        assert actividad.fecha_unica == "2026-08-03"
+
+    def test_la_hora_del_evento_se_conserva_en_el_config(self, mundo):
+        mundo["google"].respuestas.append(
+            VentanaDeEventos([_evento(dia=3, hora_inicio=10, duracion_horas=2)])
+        )
+
+        sincronizar(
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"],
+            mundo["eventos"], mundo["actividades"], DESDE, HASTA,
+        )
+
+        config = mundo["actividades"].guardadas[0].config_por_dia["Lunes"]
+        particion = config["partitions"][0]
+        # Usa la parte horaria; la fecha cambia pero la hora (10:00..12:00) no.
+        assert "10:00" in particion["startHour"]
+        assert "12:00" in particion["endHour"]
+        assert particion["durationTime"] == 120
+
+    def test_un_evento_de_todo_el_dia_sin_hora_no_rompe(self, mundo):
+        mundo["google"].respuestas.append(
+            VentanaDeEventos([_evento(dia=3, todo_el_dia=True)])
+        )
+
+        sincronizar(
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"],
+            mundo["eventos"], mundo["actividades"], DESDE, HASTA,
+        )
+
+        actividad = mundo["actividades"].guardadas[0]
+        assert actividad.fecha_unica == "2026-08-03"
+        assert actividad.config_por_dia == {}
+        assert actividad.tipo == "FIXED"
+
+    def test_resincronizar_no_duplica_la_misma_actividad(self, mundo):
+        # Primera pasada completa, luego una incremental que trae el mismo
+        # evento renombrado: la fila es la misma, no una copia.
+        mundo["google"].respuestas.append(
+            VentanaDeEventos([_evento("e1", dia=3)], sync_token="st-1")
+        )
+        sincronizar(
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"],
+            mundo["eventos"], mundo["actividades"], DESDE, HASTA,
+        )
+
+        mundo["tokens"].marcas["primary"] = "st-1"
+        mundo["google"].respuestas.append(
+            VentanaDeEventos([
+                EventoRemoto(
+                    id="e1", titulo="renombrado",
+                    inicio=datetime(2026, 8, 3, 10, tzinfo=timezone.utc),
+                    fin=datetime(2026, 8, 3, 11, tzinfo=timezone.utc),
+                    calendar_id="primary",
+                )
+            ])
+        )
+        sincronizar(
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"],
+            mundo["eventos"], mundo["actividades"], DESDE, HASTA,
+        )
+
+        assert len(mundo["actividades"].guardadas) == 1
+        assert mundo["actividades"].guardadas[0].nombre == "renombrado"
+
+    @pytest.fixture
+    def mundo2(self):
+        calendarios = [
+            CalendarioRemoto(id="primary", nombre="Principal", es_principal=True),
+            CalendarioRemoto(id="trab1", nombre="Trabajo"),
+        ]
+        google = GoogleFalso(calendarios=calendarios)
+        tokens = TokensFalsos()
+        eventos = EventosFalsos()
+        actividades = ActividadesFalsas()
+        return {
+            "google": google,
+            "tokens": tokens,
+            "eventos": eventos,
+            "actividades": actividades,
+        }
+
+    def test_mismo_evento_en_dos_calendarios_no_crea_dos_actividades(self, mundo2):
+        clase = dict(
+            titulo="Clase Calc",
+            inicio=datetime(2026, 8, 3, 10, tzinfo=timezone.utc),
+            fin=datetime(2026, 8, 3, 11, tzinfo=timezone.utc),
+        )
+        mundo2["google"].respuestas.extend([
+            VentanaDeEventos([EventoRemoto(id="a-1", calendar_id="primary", **clase)]),
+            VentanaDeEventos([EventoRemoto(id="b-1", calendar_id="trab1", **clase)]),
+        ])
+
+        sincronizar(
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo2["google"], mundo2["tokens"],
+            mundo2["eventos"], mundo2["actividades"], DESDE, HASTA,
+        )
+
+        assert len(mundo2["actividades"].guardadas) == 1
+        guardada = mundo2["actividades"].guardadas[0]
+        assert guardada.google_event_id == "a-1"
+        assert guardada.google_calendar_id == "primary"
+
+    def test_el_id_determinista_distingue_usuarios(self):
+        # El mismo evento de dos usuarios tiene ids distintos: el hash lleva
+        # el user_id dentro. Como recalcar el id no cuenta la historia en un
+        # solo usuario, verificamos que las semillas sean distintas.
+        from domain.services.google.sincronizar import _id_de_evento
+
+        evento = EventoRemoto(
+            id="e", titulo="t",
+            inicio=datetime(2026, 8, 3, 10, tzinfo=timezone.utc),
+            fin=datetime(2026, 8, 3, 11, tzinfo=timezone.utc),
+        )
+        assert _id_de_evento("u1", evento) != _id_de_evento("u2", evento)
+        assert _id_de_evento("u1", evento).startswith("google-")
 
 
 class TestPasadaIncremental:
@@ -242,7 +416,7 @@ class TestPasadaIncremental:
         mundo["google"].respuestas.append(VentanaDeEventos([]))
 
         resultado = sincronizar(
-            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"], mundo["eventos"],
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"], mundo["eventos"], mundo["actividades"],
             DESDE, HASTA,
         )
 
@@ -270,7 +444,7 @@ class TestPasadaIncremental:
         mundo["google"].respuestas.append(VentanaDeEventos([nuevo]))
 
         resultado = sincronizar(
-            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"], mundo["eventos"],
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"], mundo["eventos"], mundo["actividades"],
             DESDE, HASTA,
         )
 
@@ -287,7 +461,7 @@ class TestSyncTokenVencido:
         )
 
         resultado = sincronizar(
-            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"], mundo["eventos"],
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"], mundo["eventos"], mundo["actividades"],
             DESDE, HASTA,
         )
 
@@ -307,7 +481,7 @@ class TestSyncTokenVencido:
         with pytest.raises(ErrorDeGoogle) as capturado:
             sincronizar(
                 TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"],
-                mundo["eventos"], DESDE, HASTA,
+                mundo["eventos"], mundo["actividades"], DESDE, HASTA,
             )
 
         assert capturado.value.clase == "quota"
@@ -329,7 +503,7 @@ class TestCredencialesSeparadas:
 
         sincronizar(
             TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"],
-            mundo["tokens"], mundo["eventos"], DESDE, HASTA,
+            mundo["tokens"], mundo["eventos"], mundo["actividades"], DESDE, HASTA,
         )
 
         # Sink de Google: SOLO el access token de Google.
@@ -353,7 +527,7 @@ class TestCredencialesSeparadas:
 
         sincronizar(
             TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"],
-            mundo["tokens"], mundo["eventos"], DESDE, HASTA,
+            mundo["tokens"], mundo["eventos"], mundo["actividades"], DESDE, HASTA,
         )
 
         assert TOKEN_GOOGLE not in mundo["tokens"].jwt_recibidos
@@ -371,7 +545,7 @@ class TestCredencialesSeparadas:
 
         sincronizar(
             TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"],
-            mundo["tokens"], mundo["eventos"], DESDE, HASTA,
+            mundo["tokens"], mundo["eventos"], mundo["actividades"], DESDE, HASTA,
         )
 
         # Las dos pasadas (incremental muerta + completa) contra Google con
@@ -393,7 +567,13 @@ class TestMultiCalendario:
         google = GoogleFalso(calendarios=calendarios)
         tokens = TokensFalsos()
         eventos = EventosFalsos()
-        return {"google": google, "tokens": tokens, "eventos": eventos}
+        actividades = ActividadesFalsas()
+        return {
+            "google": google,
+            "tokens": tokens,
+            "eventos": eventos,
+            "actividades": actividades,
+        }
 
     def test_cada_calendario_recibe_su_llamada_y_su_id(self, mundo2):
         mundo2["google"].respuestas.extend([
@@ -403,7 +583,7 @@ class TestMultiCalendario:
 
         resultado = sincronizar(
             TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo2["google"], mundo2["tokens"],
-            mundo2["eventos"], DESDE, HASTA,
+            mundo2["eventos"], mundo2["actividades"], DESDE, HASTA,
         )
 
         assert mundo2["google"].llamadas_calendarios == [TOKEN_GOOGLE]
@@ -432,7 +612,7 @@ class TestMultiCalendario:
 
         resultado = sincronizar(
             TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo2["google"], mundo2["tokens"],
-            mundo2["eventos"], DESDE, HASTA,
+            mundo2["eventos"], mundo2["actividades"], DESDE, HASTA,
         )
 
         assert len(resultado.eventos) == 1
@@ -449,7 +629,7 @@ class TestMultiCalendario:
 
         resultado = sincronizar(
             TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo2["google"], mundo2["tokens"],
-            mundo2["eventos"], DESDE, HASTA,
+            mundo2["eventos"], mundo2["actividades"], DESDE, HASTA,
         )
 
         assert [e.id for e in resultado.eventos] == ["x", "y"]
@@ -466,7 +646,7 @@ class TestMultiCalendario:
 
         resultado = sincronizar(
             TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo2["google"], mundo2["tokens"],
-            mundo2["eventos"], DESDE, HASTA,
+            mundo2["eventos"], mundo2["actividades"], DESDE, HASTA,
         )
 
         # primary completa (1) + trab incremental muerta (1) + trab completa (1).
@@ -487,7 +667,7 @@ class TestMultiCalendario:
 
         sincronizar(
             TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo2["google"], mundo2["tokens"],
-            mundo2["eventos"], DESDE, HASTA,
+            mundo2["eventos"], mundo2["actividades"], DESDE, HASTA,
         )
 
         assert mundo2["google"].llamadas[0]["sync_token"] is None   # primary completa

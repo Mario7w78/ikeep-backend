@@ -33,7 +33,10 @@ from infrastructure.adapters.inbound.api.auth import (
     AuthenticatedUser,
     get_current_user,
 )
-from infrastructure.adapters.inbound.api.v1.activities_router import get_access_token
+from infrastructure.adapters.inbound.api.v1.activities_router import (
+    get_access_token,
+    get_repository,
+)
 from infrastructure.adapters.inbound.api.v1.google_router import (
     get_google_client,
     get_google_events_repository,
@@ -178,8 +181,22 @@ def _conexion_viva() -> TokensDeConexion:
     )
 
 
+def _actividad_importada():
+    from domain.entities.user_activity import ActividadUsuario
+
+    return ActividadUsuario(
+        id="google-abc",
+        propietario_id=USUARIO.id,
+        nombre="Clase",
+        tipo="FIXED",
+        fecha_unica="2026-08-03",
+        google_event_id="e",
+        google_calendar_id="primary",
+    )
+
+
 @pytest.fixture
-def cliente(configuracion, google_falso, tokens_falsos, eventos_falsos):
+def cliente(configuracion, google_falso, tokens_falsos, eventos_falsos, actividades_falsas):
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_current_user] = lambda: USUARIO
@@ -187,6 +204,7 @@ def cliente(configuracion, google_falso, tokens_falsos, eventos_falsos):
     app.dependency_overrides[get_google_client] = lambda: google_falso
     app.dependency_overrides[get_google_tokens_repository] = lambda: tokens_falsos
     app.dependency_overrides[get_google_events_repository] = lambda: eventos_falsos
+    app.dependency_overrides[get_repository] = lambda: actividades_falsas
     with TestClient(app) as c:
         yield c
 
@@ -204,6 +222,32 @@ def tokens_falsos(configuracion):
 @pytest.fixture
 def eventos_falsos(configuracion):
     return EventosFalsos()
+
+
+@pytest.fixture
+def actividades_falsas(configuracion):
+    return ActividadesFalsas()
+
+
+class ActividadesFalsas:
+    def __init__(self):
+        self.guardadas: list = []
+        self.jwt_recibidos: list[str] = []
+        self.borradas_google = 0
+
+    def save(self, jwt, actividad):
+        self.jwt_recibidos.append(jwt)
+        self.guardadas = [x for x in self.guardadas if x.id != actividad.id] + [actividad]
+        return actividad
+
+    def delete(self, jwt, activity_id):
+        self.jwt_recibidos.append(jwt)
+        self.guardadas = [x for x in self.guardadas if x.id != activity_id]
+
+    def borrar_importadas_desde_google(self, jwt):
+        self.jwt_recibidos.append(jwt)
+        self.borradas_google += 1
+        self.guardadas = [x for x in self.guardadas if not x.google_event_id]
 
 
 # --------------------------------------------------------------------------
@@ -320,7 +364,7 @@ class TestEstado:
 
 class TestDesconectar:
     def test_desconectado_borra_todo_y_revoca(
-        self, cliente, google_falso, tokens_falsos, eventos_falsos
+        self, cliente, google_falso, tokens_falsos, eventos_falsos, actividades_falsas
     ):
         tokens_falsos.conexion = _conexion_viva()
         eventos_falsos.guardados.append(EventoImportado(
@@ -328,6 +372,7 @@ class TestDesconectar:
             inicio=datetime(2026, 8, 3, 10, tzinfo=timezone.utc),
             fin=datetime(2026, 8, 3, 11, tzinfo=timezone.utc),
         ))
+        actividades_falsas.guardadas.append(_actividad_importada())
 
         r = cliente.delete("/api/v1/google/oauth")
 
@@ -336,6 +381,8 @@ class TestDesconectar:
         assert tokens_falsos.borrado is True
         assert tokens_falsos.marca_borrada is True
         assert eventos_falsos.guardados == []
+        assert actividades_falsas.borradas_google == 1
+        assert actividades_falsas.guardadas == []
 
     def test_nunca_conectado_es_no_op_sin_llamar_a_google(
         self, cliente, google_falso

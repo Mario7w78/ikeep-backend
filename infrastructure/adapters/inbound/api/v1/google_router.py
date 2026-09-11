@@ -33,13 +33,19 @@ from domain.ports.outbound.google_token_repository_port import (
     GoogleTokensRepositoryPort,
     TokensDeConexion,
 )
+from domain.ports.outbound.user_activity_repository_port import (
+    ActividadUsuarioRepositoryPort,
+)
 from domain.services.google.sincronizar import (
     Sincronizacion,
     dias_solapados,
     sincronizar,
 )
 from infrastructure.adapters.inbound.api.auth import AuthenticatedUser, get_current_user
-from infrastructure.adapters.inbound.api.v1.activities_router import get_access_token
+from infrastructure.adapters.inbound.api.v1.activities_router import (
+    get_access_token,
+    get_repository,
+)
 from infrastructure.adapters.outbound.google.calendar_client import HttpxGoogleCalendar
 from infrastructure.adapters.outbound.google.token_cipher import (
     ClaveFernetAusente,
@@ -253,6 +259,7 @@ def desconectar(
     google: GoogleCalendarPort = Depends(get_google_client),
     tokens_repo: GoogleTokensRepositoryPort = Depends(get_google_tokens_repository),
     eventos_repo: GoogleEventsRepositoryPort = Depends(get_google_events_repository),
+    actividades_repo: ActividadUsuarioRepositoryPort = Depends(get_repository),
 ):
     """Corta la conexion: revoca en Google Y borra todo rastro local."""
     conexion = tokens_repo.obtener(token)
@@ -266,6 +273,9 @@ def desconectar(
 
     tokens_repo.borrar(token)
     eventos_repo.borrar_todo(token)
+    # Las actividades materializadas llevan su google_event_id; sin fuente,
+    # quedarian huerfanas con un vinculo roto al re-conectar.
+    actividades_repo.borrar_importadas_desde_google(token)
     tokens_repo.borrar_sync_token(token)
 
 
@@ -285,6 +295,7 @@ def calendario_google(
     google: GoogleCalendarPort = Depends(get_google_client),
     tokens_repo: GoogleTokensRepositoryPort = Depends(get_google_tokens_repository),
     eventos_repo: GoogleEventsRepositoryPort = Depends(get_google_events_repository),
+    actividades_repo: ActividadUsuarioRepositoryPort = Depends(get_repository),
 ):
     """Los eventos importados del mes. Aislado de /calendario a proposito:
     un fallo de Google no puede degradar el calendario propio."""
@@ -304,7 +315,8 @@ def calendario_google(
         return JSONResponse({"conectado": False})
 
     resultado = _sincronizar_con_renovacion(
-        token, user.id, google, tokens_repo, eventos_repo, conexion, desde, hasta
+        token, user.id, google, tokens_repo, eventos_repo,
+        actividades_repo, conexion, desde, hasta,
     )
 
     dias: dict[str, list[date]] = {}
@@ -328,7 +340,8 @@ def calendario_google(
 
 
 def _sincronizar_con_renovacion(
-    token, user_id, google, tokens_repo, eventos_repo, conexion, desde, hasta
+    token, user_id, google, tokens_repo, eventos_repo,
+    actividades_repo, conexion, desde, hasta,
 ) -> Sincronizacion:
     """Una pasada de sync con el access token siempre fresco.
 
@@ -349,6 +362,7 @@ def _sincronizar_con_renovacion(
             google=google,
             tokens=tokens_repo,
             eventos=eventos_repo,
+            actividades=actividades_repo,
             desde=desde,
             hasta=hasta,
         )
@@ -365,6 +379,7 @@ def _sincronizar_con_renovacion(
             google=google,
             tokens=tokens_repo,
             eventos=eventos_repo,
+            actividades=actividades_repo,
             desde=desde,
             hasta=hasta,
         )

@@ -29,3 +29,13 @@ class ActividadUsuarioRepositoryPort(ABC):
     @abstractmethod
     def delete(self, access_token: str, activity_id: str) -> None:
         """Borra. No falla si no existe: el resultado buscado ya se cumple."""
+
+    @abstractmethod
+    def borrar_importadas_desde_google(self, access_token: str) -> None:
+        """Borra SOLO las actividades materializadas desde Google.
+
+        Identificadas por un google_event_id presente: las creadas a mano
+        (NULL) quedan intactas. Es la contraparte de la sincronizacion: si
+        desconectar Google deja los eventos importados sin fuente, estas
+        actividades se quedarian huérfanas con un vinculo roto.
+        """

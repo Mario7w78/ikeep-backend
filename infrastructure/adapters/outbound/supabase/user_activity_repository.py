@@ -41,6 +41,8 @@ def fila_a_dominio(fila: dict[str, Any]) -> ActividadUsuario:
         dia_hasta=fila.get("day_to"),
         es_ancla=bool(fila.get("is_anchor", False)),
         fecha_unica=fila.get("fecha_unica"),
+        google_event_id=fila.get("google_event_id"),
+        google_calendar_id=fila.get("google_calendar_id"),
     )
 
 
@@ -63,6 +65,8 @@ def dominio_a_fila(actividad: ActividadUsuario) -> dict[str, Any]:
         "day_to": actividad.dia_hasta,
         "is_anchor": actividad.es_ancla,
         "fecha_unica": actividad.fecha_unica,
+        "google_event_id": actividad.google_event_id,
+        "google_calendar_id": actividad.google_calendar_id,
     }
 
 
@@ -103,3 +107,11 @@ class SupabaseActividadUsuarioRepository(ActividadUsuarioRepositoryPort):
         client_for_user(access_token).table(TABLA).delete().eq(
             "id", activity_id
         ).execute()
+
+    def borrar_importadas_desde_google(self, access_token: str) -> None:
+        # IS NOT NULL cubre solo las materializadas: RLS ya acoto la tabla al
+        # dueno del token, el filtro por columna separa las que vinieron de
+        # Google de las creadas a mano.
+        client_for_user(access_token).table(TABLA).delete().not_(
+            "google_event_id"
+        ).is_(None).execute()
