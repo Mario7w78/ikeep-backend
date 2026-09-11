@@ -13,6 +13,13 @@ La estrategia es la de Google Calendar misma:
 - COMPLETA: primera vez o despues de un 410. Se pide una ventana AMPLIADA
   unos dias por lado para que un evento de varios dias que cruza el borde
   del mes llegue entero; recortar al rango es trabajo de `dias_solapados`.
+
+COMO SE MATERIALIZAN LAS ACTIVIDADES: los eventos que llegan ya expandidos
+con `recurring_event_id` son instancias de UNA MISMA serie recurrente y se
+guardan como UNA sola actividad semanal (`dias_habilitados` + la hora por
+dia), como una creada a mano: es lo que espera el plan semanal y la lista de
+actividades, y evita filas repetidas por sesion. Los eventos sin recurrencia
+(un viaje, una consulta) siguen siendo actividades con `fecha_unica`.
 """
 
 from dataclasses import dataclass
@@ -136,7 +143,9 @@ def sincronizar(
         todos.extend(ventana.eventos)
         alguna_completa = alguna_completa or completa
 
-    _aplicar_cambios(jwt_supabase, user_id, eventos, actividades, _deduplicar(todos))
+    _aplicar_cambios(
+        jwt_supabase, user_id, eventos, actividades, _deduplicar(todos)
+    )
     return Sincronizacion(
         eventos=eventos.del_rango(
             jwt_supabase, _a_momento(desde), _a_momento(hasta + timedelta(days=1))
@@ -191,28 +200,45 @@ def _aplicar_cambios(
         ],
     )
 
-    # Cada evento se materializa como actividad de Lotus: un bloque fijo con
-    # su hora, para que aparezca en el calendario propio y el horario se arme
-    # alrededor (no queda "solo en la vista mensual").
+    # Las instancias de una misma serie recurrente (mismo recurring_event_id)
+    # se juntan en UNA actividad semanal; los eventos sueltos se guardan con
+    # su fecha unica, como antes.
+    series: dict[tuple[str, str], list[EventoRemoto]] = {}
+    sueltos: list[EventoRemoto] = []
     for e in remotos:
-        actividades_repo.save(jwt_supabase, _a_actividad(user_id, e))
+        if e.recurring_event_id:
+            series.setdefault((e.calendar_id, e.recurring_event_id), []).append(e)
+        else:
+            sueltos.append(e)
+
+    actividades: list[ActividadUsuario] = [
+        _a_actividad(user_id, e) for e in sueltos
+    ]
+    actividades.extend(
+        _a_actividad_de_serie(user_id, calendario, recurrente, instancias)
+        for (calendario, recurrente), instancias in series.items()
+    )
+    for actividad in actividades:
+        actividades_repo.save(jwt_supabase, actividad)
+
+    # La copia vieja de cada instancia de serie (una fila por sesion, del
+    # diseño anterior) queda huerfana: la serie ahora es UNA fila semanal.
+    # Se borran SOLO esas, nunca las sueltas ni las manuales.
+    event_ids_de_series = [e.id for e in remotos if e.recurring_event_id]
+    if event_ids_de_series:
+        actividades_repo.borrar_importadas_con_eventos(jwt_supabase, event_ids_de_series)
 
 
 _MAX_TITULO = 200
 
 
 def _a_actividad(user_id: str, evento: EventoRemoto) -> ActividadUsuario:
-    """Del evento remoto a una actividad fija guardable.
+    """Del evento suelto (sin recurrencia) a una actividad fija guardable.
 
-    Un evento de Google llega YA expandido (singleEvents=true): una instancia
-    por fecha concreta. Se materializa como actividad con `fecha_unica` — el
-    paralelo de Lotus para "pasa este dia" — y la ocurrencia se genera al
-    vuelo en el calendario propio.
-
-    `days_config` conserva la hora como la guarda el cliente (ISO en UTC, que
-    el solver convierte a local con su desfase). `dias_habilitados` queda
-    vacio a proposito: si no, el flattener repeteria el parcial todos los
-    jueves; la fecha ya lo fija.
+    Un evento puntual de Google —un parcial, una consulta, un viaje— se
+    materializa como actividad con `fecha_unica`: el paralelo de Lotus para
+    "pasa este dia". `days_config` conserva la hora como la guarda el cliente
+    (ISO en UTC, que el solver convierte a local con su desfase).
 
     El id es DETERMINISTA: deriva del evento (user + calendario + event_id),
     así un re-sync pisa la misma fila en vez de crear una copia. La garantia
@@ -254,6 +280,75 @@ def _a_actividad(user_id: str, evento: EventoRemoto) -> ActividadUsuario:
     )
 
 
+def _a_actividad_de_serie(
+    user_id: str,
+    calendar_id: str,
+    recurring_event_id: str,
+    instancias: list[EventoRemoto],
+) -> ActividadUsuario:
+    """Una serie recurrente entera como UNA actividad semanal.
+
+    Cada instancia (singleEvents las expande) aporta el dia de la semana y la
+    hora en que ocurre; se **condensan** en la plantilla semanal que el resto
+    de Lotus ya entiende: `dias_habilitados` para el plan y `config_por_dia`
+    con la hora real del bloque para no dibujar todo a las 08:00 (bug que se
+    arregla aca: las horas viajan por aca, no por `preferredStartTime`).
+
+    Varias instancias del mismo dia a la misma hora colapsan en una particion;
+    a horas distintas quedan como particiones separadas. El id deriva del
+    `recurring_event_id` (estable entre sesiones), no del id de cada instancia
+    (que cambia por sesion).
+    """
+    locales = sorted(
+        (e.inicio.astimezone(_ZONA_LOCAL), e.fin) for e in instancias
+    )
+
+    por_dia: dict[str, list[tuple[str, str, int]]] = {}
+    for inicio_local, fin in locales:
+        dia = _NOMBRE_DIA[inicio_local.weekday()]
+        if instancias[0].todo_el_dia:
+            # Sin hora que pintar: el dia nomás, igual que un evento suelto.
+            por_dia.setdefault(dia, [])
+            continue
+        hora_inicio = inicio_local.astimezone(timezone.utc)
+        hora_fin = fin.astimezone(timezone.utc)
+        duracion = max(0, int((fin - inicio_local).total_seconds() // 60))
+        particion = (hora_inicio.isoformat(), hora_fin.isoformat(), duracion)
+        if dia not in por_dia:
+            por_dia[dia] = []
+        if particion not in por_dia[dia]:
+            por_dia[dia].append(particion)
+
+    config = {
+        dia: {
+            "partitions": [
+                {"startHour": s, "endHour": e, "durationTime": d}
+                for s, e, d in particiones
+            ],
+            "groupId": 0,
+        }
+        for dia, particiones in por_dia.items()
+        if particiones
+    }
+
+    titulo = instancias[0].titulo[: _MAX_TITULO] or "(sin titulo)"
+    # Los dias de la semana en que la serie ocurre, en orden canonico para
+    # que el plan semanal no los ordene al azar.
+    orden_dias = {nombre: i for i, nombre in enumerate(_NOMBRE_DIA)}
+    return ActividadUsuario(
+        id=_id_de_serie(user_id, calendar_id, recurring_event_id),
+        propietario_id=user_id,
+        nombre=titulo,
+        tipo="FIXED",
+        area="estudio",
+        dias_habilitados=sorted(por_dia, key=lambda d: orden_dias[d]),
+        config_por_dia=config,
+        fecha_unica=None,
+        google_event_id=recurring_event_id,
+        google_calendar_id=calendar_id,
+    )
+
+
 _NOMBRE_DIA: tuple[str, ...] = (
     "Lunes",
     "Martes",
@@ -267,6 +362,11 @@ _NOMBRE_DIA: tuple[str, ...] = (
 
 def _id_de_evento(user_id: str, evento: EventoRemoto) -> str:
     semilla = f"{user_id}|{evento.calendar_id}|{evento.id}"
+    return "google-" + sha256(semilla.encode()).hexdigest()[:48]
+
+
+def _id_de_serie(user_id: str, calendar_id: str, recurring_event_id: str) -> str:
+    semilla = f"{user_id}|{calendar_id}|r|{recurring_event_id}"
     return "google-" + sha256(semilla.encode()).hexdigest()[:48]
 
 

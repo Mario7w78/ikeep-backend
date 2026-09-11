@@ -117,3 +117,14 @@ class SupabaseActividadUsuarioRepository(ActividadUsuarioRepositoryPort):
         client_for_user(access_token).table(TABLA).delete().not_.is_(
             "google_event_id", None
         ).execute()
+
+    def borrar_importadas_con_eventos(
+        self, access_token: str, event_ids: list[str]
+    ) -> None:
+        if not event_ids:
+            return
+        # `in_` con una lista vacia no se manda (PostgREST no lo acepta) y
+        # borrar NADA es lo correcto cuando no hay instancias que limpiar.
+        client_for_user(access_token).table(TABLA).delete().in_(
+            "google_event_id", event_ids
+        ).execute()

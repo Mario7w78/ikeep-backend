@@ -74,6 +74,11 @@ class EventoRemoto:
     #: prueba a repetir el id; el adaptador SIEMPRE lo llena con el real.
     calendar_id: str = "primary"
     todo_el_dia: bool = False
+    #: El id del evento MAESTRO cuando esto es una instancia de una serie
+    #: recurrente (singleEvents=true expandio la repeticion). Vacío para los
+    #: eventos sueltos. Es la señal para agrupar: una serie recurrente se
+    #: guarda como UNA actividad semanal, no como N filas sueltas.
+    recurring_event_id: str | None = None
 
 
 @dataclass(frozen=True)

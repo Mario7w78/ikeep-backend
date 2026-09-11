@@ -5,7 +5,7 @@ firmas que los puertos. Si un test necesita un mock para pasar, el diseno
 tiene un problema; aca no hace falta ninguno.
 """
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -172,6 +172,7 @@ class ActividadesFalsas:
     def __init__(self):
         self.guardadas: list = []
         self.jwt_recibidos: list[str] = []
+        self.borradas_con_eventos: list[list[str]] = []
 
     def save(self, jwt, actividad):
         self.jwt_recibidos.append(jwt)
@@ -188,6 +189,13 @@ class ActividadesFalsas:
     def borrar_importadas_desde_google(self, *_a):  # pragma: no cover
         raise NotImplementedError
 
+    def borrar_importadas_con_eventos(self, jwt, event_ids):
+        self.jwt_recibidos.append(jwt)
+        self.borradas_con_eventos.append(list(event_ids))
+        self.guardadas = [
+            g for g in self.guardadas if g.google_event_id not in event_ids
+        ]
+
 
 def _evento(id_="e1", dia=3, hora_inicio=10, duracion_horas=1, todo_el_dia=False, calendar_id="primary"):
     inicio = datetime(2026, 8, dia, hora_inicio, tzinfo=timezone.utc)
@@ -200,6 +208,18 @@ def _evento(id_="e1", dia=3, hora_inicio=10, duracion_horas=1, todo_el_dia=False
     return EventoRemoto(
         id=id_, titulo=f"titulo-{id_}", inicio=inicio, fin=fin,
         calendar_id=calendar_id, todo_el_dia=todo_el_dia,
+    )
+
+
+def _instancia_de_serie(id_, dia, serie, hora_inicio=10, duracion_horas=1, titulo="Clase Recurrente"):
+    """Una instancia de una serie recurrente (con recurring_event_id)."""
+    return EventoRemoto(
+        id=id_,
+        titulo=titulo,
+        inicio=datetime(2026, 8, dia, hora_inicio, tzinfo=timezone.utc),
+        fin=datetime(2026, 8, dia, hora_inicio + duracion_horas, tzinfo=timezone.utc),
+        calendar_id="primary",
+        recurring_event_id=serie,
     )
 
 
@@ -408,6 +428,167 @@ class TestMaterializacionDeActividades:
         )
         assert _id_de_evento("u1", evento) != _id_de_evento("u2", evento)
         assert _id_de_evento("u1", evento).startswith("google-")
+
+
+class TestSeriesRecurrentes:
+    """Las instancias de UNA serie recurrente se condensan en UNA actividad
+    semanal (dias_habilitados + hora), en vez de una fila por sesion (D9).
+
+    Es la queja del usuario: 8-9 filas por curso aparecian como "duplicados"
+    en la lista. Google expande cada repeticion con singleEvents=true y la
+    marca con recurring_event_id; aca se vuelven a juntar.
+    """
+
+    def test_varias_instancias_de_la_misma_serie_son_una_actividad(self, mundo):
+        # La misma clase recurrente: lunes 3, lunes 10, lunes 17 de agosto,
+        # todas a las 10:00 con el mismo recurring_event_id.
+        mundo["google"].respuestas.append(
+            VentanaDeEventos([
+                _instancia_de_serie("a1", dia=3, serie="serie-calc"),
+                _instancia_de_serie("a2", dia=10, serie="serie-calc"),
+                _instancia_de_serie("a3", dia=17, serie="serie-calc"),
+            ])
+        )
+
+        sincronizar(
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"],
+            mundo["eventos"], mundo["actividades"], DESDE, HASTA,
+        )
+
+        assert len(mundo["actividades"].guardadas) == 1
+        actividad = mundo["actividades"].guardadas[0]
+        assert actividad.dias_habilitados == ["Lunes"]
+        assert actividad.fecha_unica is None
+        # La hora viaja en el config (la serie es semanal, no un parcial).
+        config = actividad.config_por_dia["Lunes"]
+        particion = config["partitions"][0]
+        assert "10:00" in particion["startHour"]
+        assert "11:00" in particion["endHour"]
+
+    def test_la_serie_guarda_todos_los_dias_de_la_semana(self, mundo):
+        # La clase se da lunes y miercoles: ambos dia_habilitados, ambos config.
+        mundo["google"].respuestas.append(
+            VentanaDeEventos([
+                _instancia_de_serie("a1", dia=3, serie="s"),
+                _instancia_de_serie("a2", dia=5, serie="s"),
+                _instancia_de_serie("a3", dia=10, serie="s"),
+                _instancia_de_serie("a4", dia=12, serie="s"),
+            ])
+        )
+
+        sincronizar(
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"],
+            mundo["eventos"], mundo["actividades"], DESDE, HASTA,
+        )
+
+        actividad = mundo["actividades"].guardadas[0]
+        # 3/8 = lunes, 5/8 = miercoles.
+        assert actividad.dias_habilitados == ["Lunes", "Miercoles"]
+        assert set(actividad.config_por_dia) == {"Lunes", "Miercoles"}
+
+    def test_la_hora_del_bloque_viaja_en_el_config_de_la_serie(self, mundo):
+        # Aunque la instancia se mueva de semana, la hora es SIEMPRE la de
+        # Google (10:00), no el default de 08:00 del solver.
+        mundo["google"].respuestas.append(
+            VentanaDeEventos([
+                _instancia_de_serie("a1", dia=3, serie="s", hora_inicio=7),
+                _instancia_de_serie("a2", dia=10, serie="s", hora_inicio=7),
+            ])
+        )
+
+        sincronizar(
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"],
+            mundo["eventos"], mundo["actividades"], DESDE, HASTA,
+        )
+
+        actividad = mundo["actividades"].guardadas[0]
+        particion = actividad.config_por_dia["Lunes"]["partitions"][0]
+        assert "07:00" in particion["startHour"]
+        assert "08:00" in particion["endHour"]
+
+    def test_el_id_de_la_serie_es_estable_y_determinista(self, mundo):
+        mundo["google"].respuestas.append(
+            VentanaDeEventos([_instancia_de_serie("a1", dia=3, serie="s")])
+        )
+        sincronizar(
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"],
+            mundo["eventos"], mundo["actividades"], DESDE, HASTA,
+        )
+        primero = mundo["actividades"].guardadas[0].id
+
+        # El mismo usuario + misma serie + otra sesion: MISMA fila.
+        mundo["google"].respuestas.append(
+            VentanaDeEventos([_instancia_de_serie("a2", dia=10, serie="s")])
+        )
+        sincronizar(
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"],
+            mundo["eventos"], mundo["actividades"], DESDE, HASTA,
+        )
+
+        assert [a.id for a in mundo["actividades"].guardadas] == [primero]
+
+    def test_las_filas_por_sesion_anteriores_se_limpian(self, mundo):
+        # Ya existian las 4 filas por-sesion (una por cada lunes, cada una con
+        # su google_event_id = el id de ESA instancia); el re-sync con la
+        # nueva logica las borra dejando solo la serie semanal.
+        instancias = [
+            _instancia_de_serie("a1", dia=3, serie="serie-calc"),
+            _instancia_de_serie("a2", dia=10, serie="serie-calc"),
+            _instancia_de_serie("a3", dia=17, serie="serie-calc"),
+            _instancia_de_serie("a4", dia=24, serie="serie-calc"),
+        ]
+        for instancia in instancias:
+            mundo["actividades"].save(
+                JWT_SUPABASE,
+                _a_actividad_vieja_por_sesion("reservado", USUARIO, instancia),
+            )
+        mundo["google"].respuestas.append(VentanaDeEventos(instancias))
+
+        sincronizar(
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"],
+            mundo["eventos"], mundo["actividades"], DESDE, HASTA,
+        )
+
+        # Quedan las 4 instancias viejas SI la limpieza no corrio; con ella,
+        # solo la serie (que ademas reemplaza la ultima fila por su id nuevo).
+        ids = {a.id for a in mundo["actividades"].guardadas}
+        assert len(ids) == 1
+        actividad = mundo["actividades"].guardadas[0]
+        assert actividad.dias_habilitados == ["Lunes"]
+        assert mundo["actividades"].borradas_con_eventos
+        assert len(mundo["actividades"].borradas_con_eventos[0]) == 4
+
+
+def _a_actividad_vieja_por_sesion(_id_reservado, user_id, evento):
+    """Reconstruye UNA fila por-sesion del diseño anterior.
+
+    El google_event_id es el id de la instancia (a1, a2, ...), igual que en
+    el esquema viejo; el id de la ACTIVIDAD era un hash del evento (que ya no
+    coincide con el id de la serie, por eso la limpieza tiene que borrarla).
+    """
+    from domain.entities.user_activity import ActividadUsuario
+
+    return ActividadUsuario(
+        id=f"google-{evento.id}-sesion",
+        propietario_id=user_id,
+        nombre=evento.titulo,
+        tipo="FIXED",
+        area="estudio",
+        dias_habilitados=[],
+        config_por_dia={
+            "Lunes": {
+                "partitions": [{
+                    "startHour": evento.inicio.isoformat(),
+                    "endHour": evento.fin.isoformat(),
+                    "durationTime": 60,
+                }],
+                "groupId": 0,
+            }
+        },
+        fecha_unica=evento.inicio.date().isoformat(),
+        google_event_id=evento.id,
+        google_calendar_id="primary",
+    )
 
 
 class TestPasadaIncremental:

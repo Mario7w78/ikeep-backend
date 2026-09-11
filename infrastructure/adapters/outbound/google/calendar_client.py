@@ -276,6 +276,7 @@ def _evento_de(item: dict, calendar_id: str) -> EventoRemoto:
         fin=_momento_de(fin),
         calendar_id=calendar_id,
         todo_el_dia=todo_el_dia,
+        recurring_event_id=item.get("recurringEventId"),
     )
 
 
