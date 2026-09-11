@@ -206,6 +206,12 @@ def _aplicar_cambios(
     series: dict[tuple[str, str], list[EventoRemoto]] = {}
     sueltos: list[EventoRemoto] = []
     for e in remotos:
+        if e.todo_el_dia:
+            # Los de todo el dia (feriados, cumpleaños) NO son actividades:
+            # no tienen hora que planificar y solo ensucian la lista del
+            # usuario. Siguen en el cache (el upsert de arriba recibe los
+            # `remotos` enteros) para que la app pinte el "dia importante".
+            continue
         if e.recurring_event_id:
             series.setdefault((e.calendar_id, e.recurring_event_id), []).append(e)
         else:

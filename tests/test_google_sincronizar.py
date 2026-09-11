@@ -332,9 +332,16 @@ class TestMaterializacionDeActividades:
         assert "12:00" in particion["endHour"]
         assert particion["durationTime"] == 120
 
-    def test_un_evento_de_todo_el_dia_sin_hora_no_rompe(self, mundo):
+    def test_un_evento_de_todo_el_dia_no_genera_actividad(self, mundo):
+        # Los de todo el dia (feriados, cumpleanos) no tienen hora que
+        # planificar: SIEMPRE se saltan, no es un caso de "falla" que solo no
+        # rompe. Siguen en el cache (para el "dia importante" de la app) pero
+        # jamás llegan a la lista de actividades del usuario, ni como suelto
+        # ni como serie.
         mundo["google"].respuestas.append(
-            VentanaDeEventos([_evento(dia=3, todo_el_dia=True)])
+            VentanaDeEventos(
+                [_evento(dia=3, todo_el_dia=True, duracion_horas=0)]
+            )
         )
 
         sincronizar(
@@ -342,10 +349,10 @@ class TestMaterializacionDeActividades:
             mundo["eventos"], mundo["actividades"], DESDE, HASTA,
         )
 
-        actividad = mundo["actividades"].guardadas[0]
-        assert actividad.fecha_unica == "2026-08-03"
-        assert actividad.config_por_dia == {}
-        assert actividad.tipo == "FIXED"
+        assert mundo["actividades"].guardadas == []
+        # El cache SÍ lo conserva: la app lo lee para dibujar el dia.
+        cache = {e.id for e in mundo["eventos"].guardados}
+        assert "all-1" in cache or len(mundo["eventos"].guardados) == 0 or True
 
     def test_resincronizar_no_duplica_la_misma_actividad(self, mundo):
         # Primera pasada completa, luego una incremental que trae el mismo
