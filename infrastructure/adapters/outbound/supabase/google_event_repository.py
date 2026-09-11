@@ -50,7 +50,11 @@ class SupabaseGoogleEventsRepository(GoogleEventsRepositoryPort):
         return [fila_a_evento(fila) for fila in (respuesta.data or [])]
 
     def borrar_todo(self, access_token: str) -> None:
-        client_for_user(access_token).table(TABLA).delete().execute()
+        # RLS acota al dueno del token; el `neq` con un uuid que ningun usuario
+        # tiene cumple el requisito de PostgREST de borrar con filtro.
+        client_for_user(access_token).table(TABLA).delete().neq(
+            "user_id", "00000000-0000-0000-0000-000000000000"
+        ).execute()
 
 
 def _evento_a_fila(user_id: str, evento: EventoImportado) -> dict[str, Any]:

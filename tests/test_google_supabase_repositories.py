@@ -45,6 +45,7 @@ def _tabla_encadenada(data=None) -> Mock:
     tabla.order.return_value = tabla
     tabla.limit.return_value = tabla
     tabla.eq.return_value = tabla
+    tabla.neq.return_value = tabla
     tabla.execute.return_value = Mock(data=data)
     return tabla
 

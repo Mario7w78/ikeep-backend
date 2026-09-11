@@ -19,6 +19,11 @@ from infrastructure.adapters.outbound.supabase.client import (
 TABLA = "google_tokens"
 TABLA_SYNC = "sync_tokens"
 
+#: PostgREST exige un filtro para borrar, y RLS ya acoto el alcance a las
+#: filas del dueno del token; este uuid (que ningun usuario tiene) es el
+#: "todas mis filas" que si castea a la columna uuid.
+_UUID_NULO = "00000000-0000-0000-0000-000000000000"
+
 
 def guardar_como_servicio(tokens: TokensDeConexion) -> None:
     """El upsert del callback OAuth, con rol de servicio.
@@ -89,8 +94,11 @@ class SupabaseGoogleTokensRepository(GoogleTokensRepositoryPort):
     def borrar(self, access_token: str) -> None:
         # Sin filtro por user_id y a proposito: RLS acota la fila al dueno
         # del token, y filtrar ademas seria fingir una certeza que no hace
-        # falta.
-        client_for_user(access_token).table(TABLA).delete().execute()
+        # falta. El `neq` cumple el requisito de PostgREST de borrar con
+        # filtro sin reducir el alcance que RLS ya garantiza.
+        client_for_user(access_token).table(TABLA).delete().neq(
+            "user_id", _UUID_NULO
+        ).execute()
 
     def sync_token(self, access_token: str, calendar_id: str) -> str | None:
         respuesta = (
@@ -131,8 +139,9 @@ class SupabaseGoogleTokensRepository(GoogleTokensRepositoryPort):
             query = query.eq("calendar_id", calendar_id)
         # Sin filtro por user_id y a proposito: RLS acota las filas al dueno
         # del token, y filtrar ademas seria fingir una certeza que no hace
-        # falta.
-        query.delete().execute()
+        # falta. El `neq` cumple el requisito de PostgREST de borrar con
+        # filtro sin reducir el alcance que RLS ya garantiza.
+        query.delete().neq("user_id", _UUID_NULO).execute()
 
 
 def _a_momento(valor):
