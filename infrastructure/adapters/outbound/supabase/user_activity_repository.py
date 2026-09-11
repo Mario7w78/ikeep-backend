@@ -111,7 +111,9 @@ class SupabaseActividadUsuarioRepository(ActividadUsuarioRepositoryPort):
     def borrar_importadas_desde_google(self, access_token: str) -> None:
         # IS NOT NULL cubre solo las materializadas: RLS ya acoto la tabla al
         # dueno del token, el filtro por columna separa las que vinieron de
-        # Google de las creadas a mano.
-        client_for_user(access_token).table(TABLA).delete().not_(
-            "google_event_id"
-        ).is_(None).execute()
+        # Google de las creadas a mano. `not_` es una property que niega el
+        # filtro siguiente (postgrest-py 2.x): `not_.is_(col, None)` ->
+        # `col=not.is.null`.
+        client_for_user(access_token).table(TABLA).delete().not_.is_(
+            "google_event_id", None
+        ).execute()
