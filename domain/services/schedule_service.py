@@ -17,6 +17,7 @@ from domain.services.time_utils import (
     is_crossing,
     to_abs,
     to_abs_minutes,
+    to_dia_hora,
 )
 
 
@@ -38,6 +39,31 @@ class PenaltyWeights:
 
 
 MIN_REST_BLOCK_MINUTES = 30
+
+_INDICE_A_DIA = (
+    "Lunes",
+    "Martes",
+    "Miercoles",
+    "Jueves",
+    "Viernes",
+    "Sabado",
+    "Domingo",
+)
+
+
+def _formato_hora(minutos: int) -> str:
+    """Minutos del dia (0-1439) a '07:00 AM'-legible para el usuario."""
+    horas, mins = divmod(minutos, 60)
+    meridiano = "AM" if horas < 12 else "PM"
+    horas12 = horas % 12 or 12
+    return f"{horas12:02d}:{mins:02d} {meridiano}"
+
+
+def _abs_a_hora_legible(abs_minutos: int) -> str:
+    """Minutos absolutos de la semana a 'Día hh:mm AM'. El % 7 hace que un
+    cruce de madrugada (Domingo 11 PM) lea 'Lunes 01:00 AM'."""
+    dia, hora = to_dia_hora(abs_minutos)
+    return f"{_INDICE_A_DIA[dia % 7]} {_formato_hora(hora)}"
 
 
 # ───────────────────── ScheduleOptimizer ─────────────────────
@@ -750,9 +776,15 @@ class ScheduleOptimizer(AbstractSchedulerService):
     def _validate_fixed_overlaps(actividades_fijas):
         """Validate no overlaps using absolute minutes (cross-midnight safe).
 
+        Las copias IDENTICAS de una misma actividad (mismo nombre, dia y
+        horario, como cuando una serie recurrente deja N particiones iguales)
+        se descartan: son el mismo bloque repetido, no un solapamiento real.
+        Sin esto, una actividad salia 'solapandose consigo misma'.
+
         Raises ValueError if any interval exceeds 2880 minutes (2 days).
         """
         items: list[tuple[str, int, int]] = []
+        vistos: set[tuple[str, int, int, int]] = set()
         for act in actividades_fijas:
             if act.dia is None:
                 raise ValueError(
@@ -766,17 +798,23 @@ class ScheduleOptimizer(AbstractSchedulerService):
                     f"La actividad fija '{act.nombre}' tiene una duración de {dur} min, "
                     f"superando el máximo permitido de 2880 min (2 días)"
                 )
+            copia = (act.nombre, act.dia, act.hora_inicio, act.hora_fin)
+            if copia in vistos:
+                continue
+            vistos.add(copia)
             abs_end = abs_start + dur
             items.append((act.nombre, abs_start, abs_end))
         items.sort(key=lambda x: x[1])  # sort by abs_start
         for i in range(len(items) - 1):
-            name_a, _, abs_end_a = items[i]
+            name_a, start_a, abs_end_a = items[i]
             name_b, abs_start_b, _ = items[i + 1]
             if abs_start_b < abs_end_a:
                 raise ValueError(
                     f"Actividades fijas solapadas: "
-                    f"'{name_a}' termina a los {abs_end_a} min absolutos "
-                    f"pero '{name_b}' empieza a los {abs_start_b} min absolutos"
+                    f"'{name_a}' ({_abs_a_hora_legible(start_a)} – "
+                    f"{_abs_a_hora_legible(abs_end_a)}) "
+                    f"choca con '{name_b}' que empieza "
+                    f"{_abs_a_hora_legible(abs_start_b)}"
                 )
 
     @staticmethod

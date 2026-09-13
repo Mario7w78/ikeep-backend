@@ -309,27 +309,28 @@ def _a_actividad_de_serie(
         (e.inicio.astimezone(_ZONA_LOCAL), e.fin) for e in instancias
     )
 
-    por_dia: dict[str, list[tuple[str, str, int]]] = {}
+    # Clave de condensacion por HORA LOCAL (sin fecha): dos martes a las 07:00
+    # en semanas distintas DEBEN dar la misma clave, o cada instancia se vuelve
+    # una particion duplicada que la UI pinta como "el mismo bloque N veces".
+    # El valor guardado es el del PRIMER ejemplo (fecha real, mismo display).
+    por_dia: dict[str, dict[tuple[int, int, int, int], tuple[str, str]]] = {}
     for inicio_local, fin in locales:
         dia = _NOMBRE_DIA[inicio_local.weekday()]
         if instancias[0].todo_el_dia:
             # Sin hora que pintar: el dia nomás, igual que un evento suelto.
-            por_dia.setdefault(dia, [])
+            por_dia.setdefault(dia, {})
             continue
-        hora_inicio = inicio_local.astimezone(timezone.utc)
-        hora_fin = fin.astimezone(timezone.utc)
+        hora_inicio = inicio_local.astimezone(timezone.utc).isoformat()
+        hora_fin = fin.astimezone(timezone.utc).isoformat()
         duracion = max(0, int((fin - inicio_local).total_seconds() // 60))
-        particion = (hora_inicio.isoformat(), hora_fin.isoformat(), duracion)
-        if dia not in por_dia:
-            por_dia[dia] = []
-        if particion not in por_dia[dia]:
-            por_dia[dia].append(particion)
+        clave = (inicio_local.hour, inicio_local.minute, inicio_local.second, duracion)
+        por_dia.setdefault(dia, {}).setdefault(clave, (hora_inicio, hora_fin))
 
     config = {
         dia: {
             "partitions": [
-                {"startHour": s, "endHour": e, "durationTime": d}
-                for s, e, d in particiones
+                {"startHour": s, "endHour": e, "durationTime": clave[3]}
+                for clave, (s, e) in particiones.items()
             ],
             "groupId": 0,
         }

@@ -352,7 +352,7 @@ class TestMaterializacionDeActividades:
         assert mundo["actividades"].guardadas == []
         # El cache SÍ lo conserva: la app lo lee para dibujar el dia.
         cache = {e.id for e in mundo["eventos"].guardados}
-        assert "all-1" in cache or len(mundo["eventos"].guardados) == 0 or True
+        assert "e1" in cache
 
     def test_resincronizar_no_duplica_la_misma_actividad(self, mundo):
         # Primera pasada completa, luego una incremental que trae el mismo
@@ -492,6 +492,37 @@ class TestSeriesRecurrentes:
         # 3/8 = lunes, 5/8 = miercoles.
         assert actividad.dias_habilitados == ["Lunes", "Miercoles"]
         assert set(actividad.config_por_dia) == {"Lunes", "Miercoles"}
+        # Lunes 3 y 10 son el MISMO dia-semana a la MISMA hora: una particion.
+        assert len(actividad.config_por_dia["Lunes"]["partitions"]) == 1
+        assert len(actividad.config_por_dia["Miercoles"]["partitions"]) == 1
+
+    def test_semanas_distintas_a_la_misma_hora_colapsan_en_una_particion(self, mundo):
+        # El bug de la UI: PLAN.ESTRAT 07:00-09:00 se pintaba N veces bajo el
+        # mismo dia (una particion por semana) porque la clave de condensacion
+        # era el instante UTC con FECHA. La clave es la hora local del dia, no
+        # la fecha: 4 martes seguidos colapsan en UN bloque.
+        mundo["google"].respuestas.append(
+            VentanaDeEventos([
+                _instancia_de_serie("a1", dia=4, serie="s", hora_inicio=7, duracion_horas=2),
+                _instancia_de_serie("a2", dia=11, serie="s", hora_inicio=7, duracion_horas=2),
+                _instancia_de_serie("a3", dia=18, serie="s", hora_inicio=7, duracion_horas=2),
+                _instancia_de_serie("a4", dia=25, serie="s", hora_inicio=7, duracion_horas=2),
+            ])
+        )
+
+        sincronizar(
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"],
+            mundo["eventos"], mundo["actividades"], DESDE, HASTA,
+        )
+
+        actividad = mundo["actividades"].guardadas[0]
+        assert actividad.dias_habilitados == ["Martes"]
+        particiones = actividad.config_por_dia["Martes"]["partitions"]
+        assert len(particiones) == 1
+        particion = particiones[0]
+        assert "07:00" in particion["startHour"]
+        assert "09:00" in particion["endHour"]
+        assert particion["durationTime"] == 120
 
     def test_la_hora_del_bloque_viaja_en_el_config_de_la_serie(self, mundo):
         # Aunque la instancia se mueva de semana, la hora es SIEMPRE la de
