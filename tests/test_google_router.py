@@ -249,6 +249,19 @@ class ActividadesFalsas:
         self.borradas_google += 1
         self.guardadas = [x for x in self.guardadas if not x.google_event_id]
 
+    def borrar_importadas_de_serie(self, jwt, calendar_id, titulo, excepto_id):
+        self.jwt_recibidos.append(jwt)
+        self.guardadas = [
+            g
+            for g in self.guardadas
+            if not (
+                g.google_calendar_id == calendar_id
+                and g.nombre == titulo
+                and bool(g.google_event_id)
+                and g.id != excepto_id
+            )
+        ]
+
 
 # --------------------------------------------------------------------------
 # OAuth

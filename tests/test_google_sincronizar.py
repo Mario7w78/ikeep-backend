@@ -196,6 +196,19 @@ class ActividadesFalsas:
             g for g in self.guardadas if g.google_event_id not in event_ids
         ]
 
+    def borrar_importadas_de_serie(self, jwt, calendar_id, titulo, excepto_id):
+        self.jwt_recibidos.append(jwt)
+        self.guardadas = [
+            g
+            for g in self.guardadas
+            if not (
+                g.google_calendar_id == calendar_id
+                and g.nombre == titulo
+                and bool(g.google_event_id)
+                and g.id != excepto_id
+            )
+        ]
+
 
 def _evento(id_="e1", dia=3, hora_inicio=10, duracion_horas=1, todo_el_dia=False, calendar_id="primary"):
     inicio = datetime(2026, 8, dia, hora_inicio, tzinfo=timezone.utc)
@@ -565,6 +578,62 @@ class TestSeriesRecurrentes:
 
         assert [a.id for a in mundo["actividades"].guardadas] == [primero]
 
+    def test_dos_series_del_mismo_nombre_en_dias_distintos_son_una(self, mundo):
+        # Google manda la misma clase como eventos recurrentes SEPARADOS: uno
+        # para martes (r-martes) y otro para jueves (r-jueves), cada uno con su
+        # recurring_event_id. Sin fusion, la lista las mostraria como 2
+        # actividades; en Lotus es una con dias=[Martes, Jueves].
+        mundo["google"].respuestas.append(
+            VentanaDeEventos([
+                _instancia_de_serie("a1", dia=4, serie="r-martes", hora_inicio=7, duracion_horas=2),
+                _instancia_de_serie("a2", dia=6, serie="r-jueves", hora_inicio=7, duracion_horas=2),
+                _instancia_de_serie("a3", dia=11, serie="r-martes", hora_inicio=7, duracion_horas=2),
+                _instancia_de_serie("a4", dia=13, serie="r-jueves", hora_inicio=7, duracion_horas=2),
+            ])
+        )
+
+        sincronizar(
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"],
+            mundo["eventos"], mundo["actividades"], DESDE, HASTA,
+        )
+
+        guardadas = mundo["actividades"].guardadas
+        assert len(guardadas) == 1
+        actividad = guardadas[0]
+        assert actividad.fecha_unica is None
+        assert actividad.dias_habilitados == ["Martes", "Jueves"]
+        assert set(actividad.config_por_dia) == {"Martes", "Jueves"}
+        assert len(actividad.config_por_dia["Martes"]["partitions"]) == 1
+        assert len(actividad.config_por_dia["Jueves"]["partitions"]) == 1
+
+    def test_mismo_titulo_suma_bloques_distintos_del_mismo_dia(self, mundo):
+        # La misma clase 'Clase Recurrente' en dos series separadas: una a las
+        # 07:00 y otra a las 14:00 del MISMO dia (martes). Un dia admite varios
+        # bloques de horas; la fusion SUMA las particiones, no pisa la primera.
+        mundo["google"].respuestas.append(
+            VentanaDeEventos([
+                _instancia_de_serie("a1", dia=4, serie="r-manana", hora_inicio=7, duracion_horas=2),
+                _instancia_de_serie("a2", dia=4, serie="r-tarde", hora_inicio=14, duracion_horas=2),
+                _instancia_de_serie("a3", dia=11, serie="r-manana", hora_inicio=7, duracion_horas=2),
+                _instancia_de_serie("a4", dia=11, serie="r-tarde", hora_inicio=14, duracion_horas=2),
+            ])
+        )
+
+        sincronizar(
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"],
+            mundo["eventos"], mundo["actividades"], DESDE, HASTA,
+        )
+
+        guardadas = mundo["actividades"].guardadas
+        assert len(guardadas) == 1
+        actividad = guardadas[0]
+        assert actividad.dias_habilitados == ["Martes"]
+        particiones = actividad.config_por_dia["Martes"]["partitions"]
+        assert len(particiones) == 2
+        inicios = {p["startHour"] for p in particiones}
+        assert any("07:00" in s for s in inicios)
+        assert any("14:00" in s for s in inicios)
+
     def test_las_filas_por_sesion_anteriores_se_limpian(self, mundo):
         # Ya existian las 4 filas por-sesion (una por cada lunes, cada una con
         # su google_event_id = el id de ESA instancia); el re-sync con la
@@ -595,6 +664,31 @@ class TestSeriesRecurrentes:
         assert actividad.dias_habilitados == ["Lunes"]
         assert mundo["actividades"].borradas_con_eventos
         assert len(mundo["actividades"].borradas_con_eventos[0]) == 4
+
+    def test_las_huérfanas_por_sesion_fuera_de_la_ventana_no_se_repiten(self, mundo):
+        # La limpieza por instancia solo alcanza las de la ventana: una fila
+        # por-sesion ya no traida por sync (id de instancia vieja, fuera del
+        # rango) quedaba para SIEMPRE como duplicado en la lista de
+        # actividades. La serie limpia por calendario + titulo.
+        for vieja_id in ("vieja-1", "vieja-2"):
+            mundo["actividades"].save(
+                JWT_SUPABASE,
+                _a_actividad_vieja_por_sesion(
+                    "reservado", USUARIO, _instancia_de_serie(vieja_id, dia=3, serie="s")
+                ),
+            )
+        mundo["google"].respuestas.append(
+            VentanaDeEventos([_instancia_de_serie("a1", dia=10, serie="s")])
+        )
+
+        sincronizar(
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"],
+            mundo["eventos"], mundo["actividades"], DESDE, HASTA,
+        )
+
+        guardadas = mundo["actividades"].guardadas
+        assert len(guardadas) == 1
+        assert guardadas[0].dias_habilitados == ["Lunes"]
 
 
 def _a_actividad_vieja_por_sesion(_id_reservado, user_id, evento):

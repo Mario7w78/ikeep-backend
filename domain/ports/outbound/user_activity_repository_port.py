@@ -52,3 +52,21 @@ class ActividadUsuarioRepositoryPort(ABC):
         semanal. Se borran solo las que llevan uno de estos `google_event_id`
         — las manuales (NULL) y las de otras series no se tocan.
         """
+
+    @abstractmethod
+    def borrar_importadas_de_serie(
+        self,
+        access_token: str,
+        calendar_id: str,
+        titulo: str,
+        excepto_activity_id: str,
+    ) -> None:
+        """Borra las copias importadas de una serie que no son la serie.
+
+        La limpieza inmediata (`borrar_importadas_con_eventos`) alcanza solo
+        las instancias de la ventana de sync; las filas por-sesión cuyas
+        fechas ya no entran quedaban para SIEMPRE como duplicados en la lista
+        de actividades. Esta limpieza borra cualquier fila importada del mismo
+        calendario y título que no sea la serie recién guardada, esté o no en
+        la ventana. Las manuales (NULL) nunca se tocan.
+        """

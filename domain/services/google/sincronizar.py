@@ -18,11 +18,15 @@ COMO SE MATERIALIZAN LAS ACTIVIDADES: los eventos que llegan ya expandidos
 con `recurring_event_id` son instancias de UNA MISMA serie recurrente y se
 guardan como UNA sola actividad semanal (`dias_habilitados` + la hora por
 dia), como una creada a mano: es lo que espera el plan semanal y la lista de
-actividades, y evita filas repetidas por sesion. Los eventos sin recurrencia
-(un viaje, una consulta) siguen siendo actividades con `fecha_unica`.
+actividades, y evita filas repetidas por sesion. Series del MISMO nombre en
+el mismo calendario (Google puede mandar la misma clase como eventos
+recurrentes separados, uno por dia) se fusionan en UNA: se unen dias y
+bloques de hora, y un mismo dia admite varios bloques distintos. Los eventos
+sin recurrencia (un viaje, una consulta) siguen siendo actividades con
+`fecha_unica`.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from hashlib import sha256
 from zoneinfo import ZoneInfo
@@ -221,11 +225,28 @@ def _aplicar_cambios(
         _a_actividad(user_id, e) for e in sueltos
     ]
     actividades.extend(
-        _a_actividad_de_serie(user_id, calendario, recurrente, instancias)
-        for (calendario, recurrente), instancias in series.items()
+        _fusionar_series_por_titulo(
+            user_id,
+            [
+                _a_actividad_de_serie(user_id, calendario, recurrente, instancias)
+                for (calendario, recurrente), instancias in series.items()
+            ],
+        )
     )
     for actividad in actividades:
         actividades_repo.save(jwt_supabase, actividad)
+        if (
+            actividad.fecha_unica is None
+            and actividad.google_event_id
+            and actividad.google_calendar_id
+        ):
+            # Serie semanal: la limpieza por instancia solo alcanza la ventana,
+            # pero las filas por-sesion de meses atras quedaban como
+            # duplicados en la lista de actividades para siempre. Se limpian
+            # por calendario + titulo (el id de la serie queda afuera).
+            actividades_repo.borrar_importadas_de_serie(
+                jwt_supabase, actividad.google_calendar_id, actividad.nombre, actividad.id
+            )
 
     # La copia vieja de cada instancia de serie (una fila por sesion, del
     # diseño anterior) queda huerfana: la serie ahora es UNA fila semanal.
@@ -354,6 +375,77 @@ def _a_actividad_de_serie(
         google_event_id=recurring_event_id,
         google_calendar_id=calendar_id,
     )
+
+
+def _id_de_serie_por_titulo(user_id: str, calendar_id: str, titulo: str) -> str:
+    semilla = f"{user_id}|{calendar_id}|t|{titulo}"
+    return "google-" + sha256(semilla.encode()).hexdigest()[:48]
+
+
+def _fusionar_series_por_titulo(
+    user_id: str, series: list[ActividadUsuario]
+) -> list[ActividadUsuario]:
+    """Series con el MISMO nombre y calendario = UNA actividad de Lotus.
+
+    Google puede mandar la misma clase como eventos recurrentes separados
+    (uno por dia, cada uno con su recurring_event_id): sin esta fusion, la
+    lista muestra la clase tantas veces como dias, como si fueran actividades
+    distintas. Una actividad de Lotus lleva dias_habilitados + la hora por
+    dia, asi que se unen los dias y las particiones.
+
+    Un mismo dia con bloques DISTINTOS suma las particiones en vez de pisar
+    la primera (la identidad de un bloque es inicio+fin+duracion): un dia
+    admite varios bloques de horas diferentes.
+
+    El id se reescribe al del TITULO: determinista entre sesiones y estable
+    aunque Google reordene los recurring_event_id. `borrar_importadas_de_serie`
+    se encarga luego de limpiar las demas copias del mismo calendario + titulo.
+    """
+    fusionadas: dict[tuple[str, str], ActividadUsuario] = {}
+    for serie in series:
+        if not serie.google_calendar_id:
+            reescrita = serie
+        else:
+            reescrita = replace(
+                serie,
+                id=_id_de_serie_por_titulo(
+                    user_id, serie.google_calendar_id, serie.nombre
+                ),
+            )
+        clave = (reescrita.google_calendar_id, reescrita.nombre)
+        previa = fusionadas.get(clave)
+        if previa is None:
+            fusionadas[clave] = reescrita
+            continue
+
+        for dia in reescrita.dias_habilitados:
+            if dia not in previa.dias_habilitados:
+                previa.dias_habilitados.append(dia)
+            config_dia = reescrita.config_por_dia.get(dia)
+            if not config_dia:
+                continue
+            destino = previa.config_por_dia.setdefault(
+                dia, {"partitions": [], "groupId": 0}
+            )
+            vistos = {
+                (p["startHour"], p["endHour"], p.get("durationTime"))
+                for p in destino["partitions"]
+            }
+            for particion in config_dia.get("partitions", []):
+                otra = (
+                    particion["startHour"],
+                    particion["endHour"],
+                    particion.get("durationTime"),
+                )
+                if otra not in vistos:
+                    destino["partitions"].append(particion)
+                    vistos.add(otra)
+            destino["partitions"].sort(key=lambda p: p["startHour"])
+
+    orden_dias = {nombre: i for i, nombre in enumerate(_NOMBRE_DIA)}
+    for previa in fusionadas.values():
+        previa.dias_habilitados.sort(key=lambda d: orden_dias[d])
+    return list(fusionadas.values())
 
 
 _NOMBRE_DIA: tuple[str, ...] = (

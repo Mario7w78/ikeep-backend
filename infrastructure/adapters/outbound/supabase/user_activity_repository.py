@@ -128,3 +128,21 @@ class SupabaseActividadUsuarioRepository(ActividadUsuarioRepositoryPort):
         client_for_user(access_token).table(TABLA).delete().in_(
             "google_event_id", event_ids
         ).execute()
+
+    def borrar_importadas_de_serie(
+        self, access_token: str, calendar_id: str, titulo: str, excepto_activity_id: str
+    ) -> None:
+        # La serie se identifica por calendario + título (las filas por-sesion
+        # viejas llevan el id de instancia, no el de la serie, así que el
+        # recurring_event_id no alcanza). El id recién guardado queda afuera y
+        # las manuales (google_event_id NULL) nunca se tocan.
+        (
+            client_for_user(access_token)
+            .table(TABLA)
+            .delete()
+            .eq("google_calendar_id", calendar_id)
+            .eq("title", titulo)
+            .not_.is_("google_event_id", None)
+            .neq("id", excepto_activity_id)
+            .execute()
+        )
