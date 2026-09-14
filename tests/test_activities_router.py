@@ -58,7 +58,9 @@ ACTIVIDAD = ActividadUsuario(
 
 @pytest.fixture
 def repo():
-    return Mock()
+    repo = Mock()
+    repo.get.return_value = None
+    return repo
 
 
 @pytest.fixture
@@ -185,6 +187,28 @@ class TestGuardar:
 
         assert respuesta.status_code == 422
         repo.save.assert_not_called()
+
+    def test_editar_conserva_el_origen_de_google(self, client, repo):
+        """La UI edita sin saber de google_event_id; el PUT no debe pisarlo."""
+        previa = ActividadUsuario(
+            id="act-1",
+            propietario_id="usuario-1",
+            nombre="Calculo",
+            tipo="fija",
+            dias_habilitados=["martes"],
+            es_ancla=True,
+            google_event_id="evt-google-1",
+            google_calendar_id="primary",
+        )
+        repo.get.return_value = previa
+        repo.save.return_value = previa
+
+        respuesta = client.put("/api/v1/actividades/act-1", json=PAYLOAD)
+
+        assert respuesta.status_code == 200
+        guardada = repo.save.call_args[0][1]
+        assert guardada.google_event_id == "evt-google-1"
+        assert guardada.google_calendar_id == "primary"
 
 
 class TestFechaUnica:

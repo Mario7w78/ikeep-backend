@@ -5,6 +5,8 @@ usuario no se resuelve aca sino en Postgres via RLS, con el token que viaja
 en cada peticion.
 """
 
+from dataclasses import replace
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -132,7 +134,20 @@ def guardar_actividad(
 ):
     """PUT y no POST: el cliente genera los ids, asi que crear y reemplazar
     son la misma operacion y conviene que sea idempotente."""
-    guardada = repo.save(token, _a_dominio(payload, activity_id, user.id))
+    entidad = _a_dominio(payload, activity_id, user.id)
+    previa = repo.get(token, activity_id)
+    if previa is not None and previa.google_event_id and entidad.google_event_id is None:
+        # El payload de la app no trae el origen de Google (la UI no sabe de
+        # google_event_id), pero pisarlo romperia el vinculo en la BD: la
+        # proxima sync trataria la actividad como ajena a su serie y la
+        # limpieza por titulo/calendario borraria la hermana. Conservamos el
+        # origen de la fila existente.
+        entidad = replace(
+            entidad,
+            google_event_id=previa.google_event_id,
+            google_calendar_id=previa.google_calendar_id,
+        )
+    guardada = repo.save(token, entidad)
     return _a_respuesta(guardada)
 
 
