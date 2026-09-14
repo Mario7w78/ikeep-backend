@@ -20,6 +20,7 @@ from domain.services.assistant.conversation import (
     FuenteDeDatos,
     ServicioConversacion,
 )
+from domain.services.assistant.system_prompt import SYSTEM_PROMPT
 from schemas.assistant import BloqueHorario, Borrador
 
 AHORA = datetime(2026, 8, 3, 14, 30, tzinfo=timezone.utc)
@@ -88,7 +89,10 @@ class TestRespuestaDeTexto:
             mensaje="clase de calculo", borrador=Borrador(), turnos=[], ahora=AHORA
         )
 
-        assert modelo.llamadas[0][-1] == {
+        # El mensaje del usuario va justo antes del contexto: la lista termina
+        # con el contexto dinámico (último mensaje system), que es lo que se
+        # rearmó con el borrador actual.
+        assert modelo.llamadas[0][-2] == {
             "role": "user",
             "content": "clase de calculo",
         }
@@ -100,9 +104,16 @@ class TestRespuestaDeTexto:
             mensaje="hola", borrador=Borrador(), turnos=[], ahora=AHORA
         )
 
-        system = modelo.llamadas[0][0]
-        assert system["role"] == "system"
-        assert "huecos_libres_hoy" in system["content"]
+        # El prompt estático va primero —byte-idéntico entre llamadas, servido
+        # de caché— y el contexto dinámico Cierra la lista, para que el prefijo
+        # reutilizable quede intacto en cada vuelta del bucle.
+        prompt = modelo.llamadas[0][0]
+        assert prompt["role"] == "system"
+        assert prompt["content"] == SYSTEM_PROMPT
+
+        contexto = modelo.llamadas[0][-1]
+        assert contexto["role"] == "system"
+        assert "huecos_libres_hoy" in contexto["content"]
 
 
 class TestBorrador:
@@ -543,7 +554,9 @@ class TestNoAfirmarLoQueNoHizo:
             mensaje="dale", borrador=Borrador(), turnos=[], ahora=AHORA
         )
 
-        correccion = modelo.llamadas[1][-1]
+        # La correccion es el penultimo mensaje: el ultimo es el contexto que
+        # se rearma por vuelta (prompt estatico primero, contexto al final).
+        correccion = modelo.llamadas[1][-2]
         assert correccion["role"] == "system"
         assert "No has guardado nada" in correccion["content"]
 
@@ -636,7 +649,7 @@ class TestNoPedirConfirmacionSinProponer:
             mensaje="dale", borrador=Borrador(), turnos=[], ahora=AHORA
         )
 
-        correccion = modelo.llamadas[1][-1]
+        correccion = modelo.llamadas[1][-2]
         assert correccion["role"] == "system"
         assert "no tiene nada que confirmar" in correccion["content"]
 

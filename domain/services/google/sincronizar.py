@@ -24,6 +24,14 @@ recurrentes separados, uno por dia) se fusionan en UNA: se unen dias y
 bloques de hora, y un mismo dia admite varios bloques distintos. Los eventos
 sin recurrencia (un viaje, una consulta) siguen siendo actividades con
 `fecha_unica`.
+
+DESDE CUANDO SE CREAN: solo los eventos SUELTOS de esta semana en adelante se
+materializan. La pasada incremental le pregunta a Google los cambios desde el
+syncToken y la API ignora la ventana (timeMin/timeMax no viajan con la marca),
+asi que llegan tambien eventos de meses atras; crearlos como actividades era
+el bug del "Control de Sincronizar" que llenaba la lista de actividades con
+fechas viejas. Las series semanales NO se filtran: una recurrencia vale por
+diseno hacia adelante, no importa cuando la devuelva Google.
 """
 
 from dataclasses import dataclass, replace
@@ -84,6 +92,7 @@ def sincronizar(
     actividades: ActividadUsuarioRepositoryPort,
     desde: date,
     hasta: date,
+    hoy: date | None = None,
 ) -> Sincronizacion:
     """Trae los cambios de Google, actualiza el cache y devuelve el rango.
 
@@ -96,6 +105,11 @@ def sincronizar(
 
     Mezclarlos rompe todo en vivo aunque los fakes no lo noten: por eso
     existen como parametros separados desde la firma.
+
+    LA VENTANA NO ACOTA LA INCREMENTAL: con syncToken Google ignora
+    timeMin/timeMax y devuelve TODOS los cambios desde la marca — incluso
+    eventos de hace meses. Aplicar los cambios con ese ruido crearia
+    actividades viejas; por eso la materializacion filtra por `hoy`.
 
     Una pasada por CADA calendario: Google entrega syncToken por calendario
     y un evento solo es unico dentro de su calendario, asi que mezclarlos
@@ -148,7 +162,12 @@ def sincronizar(
         alguna_completa = alguna_completa or completa
 
     _aplicar_cambios(
-        jwt_supabase, user_id, eventos, actividades, _deduplicar(todos)
+        jwt_supabase,
+        user_id,
+        eventos,
+        actividades,
+        _deduplicar(todos),
+        _inicio_de_la_semana(hoy or datetime.now(_ZONA_LOCAL).date()),
     )
     return Sincronizacion(
         eventos=eventos.del_rango(
@@ -181,12 +200,23 @@ def _deduplicar(remotos: list[EventoRemoto]) -> list[EventoRemoto]:
     return unicos
 
 
+def _inicio_de_la_semana(hoy: date) -> date:
+    """El lunes de la semana de `hoy`: lo mas atras que se planifica.
+
+    "Esta semana hacia adelante" es el lunes inclusive: un evento del lunes
+    mismo todavia se materializa, uno del domingo anterior ya no. Los
+    eventos sueltos anteriores a ese umbral son historia, no tareas.
+    """
+    return hoy - timedelta(days=hoy.weekday())
+
+
 def _aplicar_cambios(
     jwt_supabase,
     user_id,
     eventos_repo,
     actividades_repo,
     remotos,
+    umbral,  # el lunes de "esta semana", desde donde se materializa
 ) -> None:
     eventos_repo.upsert(
         jwt_supabase,
@@ -221,8 +251,25 @@ def _aplicar_cambios(
         else:
             sueltos.append(e)
 
+    # Eventos sueltos PASADOS (antes del lunes de esta semana): la pasada
+    # incremental los trajo sin querer (Google ignora la ventana con la
+    # marca) y materializarlos llenaba la lista con actividades de hace
+    # meses. Se dejan en el cache para pintar dias viejos, pero NO se
+    # convierten en actividades. Las series NO se filtran: una recurrencia
+    # vale hacia adelante aunque Google la devuelva con fechas antiguas.
+    vivos, pasados = [], []
+    for e in sueltos:
+        (vivos if _fecha_unica(e) >= umbral.isoformat() else pasados).append(e)
+    if pasados:
+        # La copia materializada de un evento pasado (mismo id determinista)
+        # de una sincronizacion anterior queda huerfana: se borra para que
+        # el arreglo tambien limpie lo ya creado, no solo evite lo nuevo.
+        actividades_repo.borrar_importadas_con_eventos(
+            jwt_supabase, [e.id for e in pasados]
+        )
+
     actividades: list[ActividadUsuario] = [
-        _a_actividad(user_id, e) for e in sueltos
+        _a_actividad(user_id, e) for e in vivos
     ]
     actividades.extend(
         _fusionar_series_por_titulo(

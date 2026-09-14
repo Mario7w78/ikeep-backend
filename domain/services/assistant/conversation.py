@@ -82,7 +82,7 @@ _RESPUESTA_VACIA = "Perdón, no te entendí. ¿Me lo repites?"
 _CORRECCION = (
     "No has guardado nada. Nada se guarda hasta que el usuario confirma una "
     "propuesta. Si el borrador esta completo, llama a proponer_actividad "
-    "ahora. Si falta algo, preguntalo. Nunca digas que algo quedo creado, "
+    "ahora. Si falta algo, hazle una pregunta. Nunca digas que algo quedo creado, "
     "guardado, actualizado o eliminado."
 )
 
@@ -91,7 +91,7 @@ _SIN_PROPUESTA = (
     "Pediste una confirmacion pero no llamaste a ninguna herramienta de "
     "propuesta, asi que el usuario no tiene nada que confirmar. Si el "
     "borrador esta completo, llama a proponer_actividad ahora. Si falta "
-    "algo, preguntalo en vez de pedir confirmacion."
+    "algo, hazle una pregunta en vez de pedir confirmacion."
 )
 
 # Lo que ve el usuario si el modelo insiste en mentir.
@@ -243,15 +243,27 @@ class ServicioConversacion:
                     propuesta=None,
                 )
 
+            # El prompt va en dos mensajes, y el orden importa doble:
+            #
+            # 1. La caché de los proveedores (Groq/Cerebras/Mistral) pega por
+            #    prefijo exacto: comparte lo que esta al inicio y no ha
+            #    cambiado. SYSTEM_PROMPT es byte-idéntico entre llamadas y
+            #    entre turnos, así que es el único candidato fiable a quedar
+            #    servido de caché. Si se mezclara con el contexto —que se
+            #    reconstruye tras cada tool y lleva `borrador`/`falta`— el
+            #    prefijo cambiaría en cada vuelta y nunca habría cache hit.
+            #
+            # 2. El contexto al final y no al lado del prompt: intercalarlo
+            #    invalida la caché, pero además el historial que va antes
+            #    también se vuelve parte del prefijo reutilizable (el turno
+            #    nuevo solo se agrega). La posición final no lo degrada —
+            #    el modelo lo lee como instrucción igual— y es justo lo que
+            #    Groq recomienda: estatico primero, variable al final.
             mensajes = [
-                {
-                    "role": "system",
-                    "content": (
-                        f"{SYSTEM_PROMPT}\n\n"
-                        f"# Contexto\n{json.dumps(contexto, ensure_ascii=False)}"
-                    ),
-                }
-            ] + turnos_nuevos
+                {"role": "system", "content": SYSTEM_PROMPT},
+            ] + turnos_nuevos + [
+                {"role": "system", "content": f"# Contexto\n{json.dumps(contexto, ensure_ascii=False)}"}
+            ]
 
             respuesta = self._modelo.conversar(mensajes, tools)
 
