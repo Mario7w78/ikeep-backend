@@ -55,6 +55,17 @@ class LLMGatewayException(DomainException):
     pass
 
 
+class LLMQuotaExceededException(DomainException):
+    """Raised when the LLM provider is out of quota/tokens.
+
+    Es distinto de un fallo del servicio: el proveedor esta sano, simplemente
+    no queda presupuesto. El cliente lo distingue para no mostrar "algo salio
+    mal" cuando en realidad el asistente se quedo sin pilas.
+    """
+
+    pass
+
+
 # ─── Status code mapping ─────────────────────────────────────────
 
 EXCEPTION_STATUS_MAP: dict[type, int] = {
@@ -63,6 +74,7 @@ EXCEPTION_STATUS_MAP: dict[type, int] = {
     LLMServiceException: 503,
     LLMTimeoutException: 503,
     LLMGatewayException: 502,
+    LLMQuotaExceededException: 402,
     DomainException: 422,
     ValueError: 422,
     TypeError: 422,

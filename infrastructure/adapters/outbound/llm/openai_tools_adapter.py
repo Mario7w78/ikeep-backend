@@ -20,12 +20,27 @@ from domain.ports.outbound.conversational_llm_port import (
     InvocacionTool,
     RespuestaConversacional,
 )
-from infrastructure.adapters.inbound.api.middleware import LLMServiceException
+from infrastructure.adapters.inbound.api.middleware import (
+    LLMQuotaExceededException,
+    LLMServiceException,
+)
 
 logger = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT_SECONDS = 25.0
 MAX_OUTPUT_TOKENS = 1500
+
+# Cuando un proveedor se queda sin presupuesto devuelve esto, no un fallo de
+# servicio: la diferencia importa porque para el usuario es "el asistente se
+# quedo sin pilas", no "algo salio mal".
+_SENALES_DE_QUOTA = (
+    "429",
+    "quota",
+    "rate limit",
+    "rate_limit",
+    "too many requests",
+    "insufficient",
+)
 
 
 class OpenAIToolsAdapter(ConversationalLLMPort):
@@ -56,6 +71,11 @@ class OpenAIToolsAdapter(ConversationalLLMPort):
         except Exception as exc:
             # Se traduce al error del dominio para que el failover pueda
             # reaccionar sin saber contra que proveedor esta hablando.
+            if _es_quota(exc):
+                logger.warning("Quota del proveedor agotada %s: %s", self._default_model, exc)
+                raise LLMQuotaExceededException(
+                    f"El proveedor se quedo sin presupuesto: {exc}"
+                ) from exc
             logger.warning("Fallo del proveedor %s: %s", self._default_model, exc)
             raise LLMServiceException(
                 f"El proveedor no respondio: {exc}"
@@ -118,3 +138,13 @@ class OpenAIToolsAdapter(ConversationalLLMPort):
 
     def __repr__(self) -> str:
         return f"OpenAIToolsAdapter(model={self._default_model!r})"
+
+
+def _es_quota(exc: Exception) -> bool:
+    """Un proveedor sin presupuesto vs uno fallando: no es lo mismo.
+
+    El mensaje del proveedor lleva la senal; el tipo de excepcion no distingue
+    entre una cosa y la otra.
+    """
+    texto = str(exc).lower()
+    return any(senal in texto for senal in _SENALES_DE_QUOTA)

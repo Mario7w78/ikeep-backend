@@ -12,7 +12,10 @@ from unittest.mock import Mock, patch
 import pytest
 
 from domain.ports.outbound.conversational_llm_port import RespuestaConversacional
-from infrastructure.adapters.inbound.api.middleware import LLMServiceException
+from infrastructure.adapters.inbound.api.middleware import (
+    LLMQuotaExceededException,
+    LLMServiceException,
+)
 from infrastructure.adapters.outbound.llm.openai_tools_adapter import (
     OpenAIToolsAdapter,
 )
@@ -177,4 +180,24 @@ class TestRobustez:
         adaptador._cliente_mock.chat.completions.create.return_value = respuesta_vacia
 
         with pytest.raises(LLMServiceException):
+            adaptador.conversar(MENSAJES, TOOLS)
+
+    def test_un_proveedor_sin_quota_es_un_error_distinto(self, adaptador):
+        """"Se quedo sin presupuesto" no es "esto fallo": el cliente lo mostrara
+        como Sapo cansado, no como un error tecnico."""
+        adaptador._cliente_mock.chat.completions.create.side_effect = Exception(
+            "429 You exceeded your current quota"
+        )
+
+        with pytest.raises(LLMQuotaExceededException):
+            adaptador.conversar(MENSAJES, TOOLS)
+
+    def test_un_rate_limit_tambien_cuenta_como_quota(self, adaptador):
+        """Los planes con tope por minuto devuelven esto antes del corte de
+        saldo; para el usuario es lo mismo: el asistente no tiene pilas."""
+        adaptador._cliente_mock.chat.completions.create.side_effect = Exception(
+            "rate_limit_exceeded: too many requests"
+        )
+
+        with pytest.raises(LLMQuotaExceededException):
             adaptador.conversar(MENSAJES, TOOLS)
