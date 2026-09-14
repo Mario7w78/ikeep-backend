@@ -6,6 +6,7 @@ tiene un problema; aca no hace falta ninguno.
 """
 
 from datetime import date, datetime, timedelta, timezone
+from dataclasses import replace
 
 import pytest
 
@@ -177,6 +178,10 @@ class ActividadesFalsas:
         self.guardadas: list = []
         self.jwt_recibidos: list[str] = []
         self.borradas_con_eventos: list[list[str]] = []
+
+    def list_all(self, jwt):
+        self.jwt_recibidos.append(jwt)
+        return list(self.guardadas)
 
     def save(self, jwt, actividad):
         self.jwt_recibidos.append(jwt)
@@ -470,6 +475,55 @@ class TestMaterializacionDeActividades:
 
         assert len(mundo["actividades"].guardadas) == 1
         assert mundo["actividades"].guardadas[0].nombre == "renombrado"
+
+    def test_resincronizar_preserva_el_tiempo_de_viaje_editado(self, mundo):
+        """La sync re-materializa la actividad desde Google en cada pasada y su
+        config no conoce los travelTo/travelFrom que cargo el usuario: pisarla
+        borraba el viaje editado. El re-sync debe conservarlo en la particion
+        equivalente (mismo horario real, afuera del formato de texto: la app
+        guarda "...Z" y la sync regenera "...+00:00")."""
+        from domain.services.google.sincronizar import (
+            _id_de_evento,
+        )
+
+        evento = _evento("e1", dia=3, hora_inicio=10)
+        mundo["google"].respuestas.append(VentanaDeEventos([evento]))
+        sincronizar(
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"],
+            mundo["eventos"], mundo["actividades"], DESDE, HASTA, HOY,
+        )
+
+        original = mundo["actividades"].guardadas[0]
+        assert original.id == _id_de_evento(USUARIO, evento)
+
+        # Lo que guarda la app al editar: isoformat JS ("Z"), no el de Python.
+        particion_cruda = original.config_por_dia["Lunes"]["partitions"][0]
+        con_viaje = replace(
+            original,
+            config_por_dia={
+                "Lunes": {
+                    "partitions": [{
+                        **particion_cruda,
+                        "startHour": "2026-08-03T10:00:00.000Z",
+                        "endHour": "2026-08-03T11:00:00.000Z",
+                        "travelTo": 20,
+                        "travelFrom": 30,
+                    }],
+                    "groupId": 0,
+                }
+            },
+        )
+        mundo["actividades"].guardadas = [con_viaje]
+
+        mundo["google"].respuestas.append(VentanaDeEventos([_evento("e1", dia=3, hora_inicio=10)]))
+        sincronizar(
+            TOKEN_GOOGLE, JWT_SUPABASE, USUARIO, mundo["google"], mundo["tokens"],
+            mundo["eventos"], mundo["actividades"], DESDE, HASTA, HOY,
+        )
+
+        particion = mundo["actividades"].guardadas[0].config_por_dia["Lunes"]["partitions"][0]
+        assert particion["travelTo"] == 20
+        assert particion["travelFrom"] == 30
 
     @pytest.fixture
     def mundo2(self):

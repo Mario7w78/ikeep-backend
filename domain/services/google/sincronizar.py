@@ -280,7 +280,20 @@ def _aplicar_cambios(
             ],
         )
     )
+
+    # Cada actividad se re-materializa desde Google en cada sync; su config
+    # se reconstruye SIN el tiempo de viaje (Google no lo conoce). Guardarla
+    # tal cual pisaria el viaje que el usuario ya cargo en la version previa,
+    # asi que se copian los que ya habia a las particiones equivalentes.
+    existentes = (
+        {a.id: a for a in actividades_repo.list_all(jwt_supabase)}
+        if actividades
+        else {}
+    )
     for actividad in actividades:
+        previa = existentes.get(actividad.id)
+        if previa is not None and previa.config_por_dia:
+            actividad = _con_viajes_preservados(previa, actividad)
         actividades_repo.save(jwt_supabase, actividad)
         if (
             actividad.fecha_unica is None
@@ -422,6 +435,79 @@ def _a_actividad_de_serie(
         google_event_id=recurring_event_id,
         google_calendar_id=calendar_id,
     )
+
+
+def _con_viajes_preservados(
+    previa: ActividadUsuario, reescrita: ActividadUsuario
+) -> ActividadUsuario:
+    """Copia los tiempos de viaje que el usuario ya cargó en la versión
+    previa a las particiones equivalentes de la actividad re-materializada.
+
+    Google solo sabe de inicio/fin/duración: los `travelTo`/`travelFrom` los
+    pone la app. Al re-materializar sin ellos y pisar la fila, la sync borraba
+    el viaje editado en cada pasada. La equivalencia por horario es
+    intencional: si Google movío el bloque, el bloque nuevo no pierde el viaje
+    — "se llega en tantos minutos" sigue siendo dañe para la clase que se
+    corre de hora.
+
+    NO se compara la fecha en texto: la app guarda la hora como isoformat JS
+    ("...T10:00:00.000Z") y la sync la regenera con manejo de zona distinto
+    ("...+00:00"); comparar los strings nunca coincidiría aunque fueran el
+    mismo instante. Se normaliza a la hora del día real (en UTC, como viaja
+    el campo) y se compara esa.
+    """
+    viajes = {
+        _clave_de_particion(p): {
+            "travelTo": p.get("travelTo"),
+            "travelFrom": p.get("travelFrom"),
+        }
+        for config_dia in previa.config_por_dia.values()
+        for p in config_dia.get("partitions", [])
+        if p.get("travelTo") is not None or p.get("travelFrom") is not None
+    }
+    if not viajes:
+        return reescrita
+
+    config = {}
+    for dia, config_dia in reescrita.config_por_dia.items():
+        particiones = []
+        for particion in config_dia.get("partitions", []):
+            viaje = viajes.get(_clave_de_particion(particion))
+            particiones.append(
+                {**particion, **viaje} if viaje else particion
+            )
+        config[dia] = {**config_dia, "partitions": particiones}
+
+    return replace(reescrita, config_por_dia=config)
+
+
+def _clave_de_particion(particion: dict) -> tuple:
+    """La hora del día en UTC de una partición: lo que identifica un bloque.
+
+    '2026-08-03T10:00:00.000Z' y '2026-08-03T10:00:00+00:00' son el mismo
+    instante pero textos distintos; ambas se normalizan a (10, 0, 0) y a la
+    misma duración, así el viaje sobrevive al re-materializado.
+    """
+    return (
+        _hora_del_dia(particion.get("startHour")),
+        _hora_del_dia(particion.get("endHour")),
+        particion.get("durationTime"),
+    )
+
+
+def _hora_del_dia(valor) -> tuple[int, int, int] | None:
+    from datetime import datetime
+
+    if not valor:
+        return None
+    try:
+        # isoformat JS termina en 'Z'; el de Python en '+00:00'. Ambos son
+        # UTC (el campo viaja en UTC por contrato).
+        texto = valor.replace("Z", "+00:00") if isinstance(valor, str) else None
+        momento = datetime.fromisoformat(texto) if texto else valor
+        return (momento.hour, momento.minute, momento.second)
+    except (ValueError, TypeError):
+        return None
 
 
 def _id_de_serie_por_titulo(user_id: str, calendar_id: str, titulo: str) -> str:
