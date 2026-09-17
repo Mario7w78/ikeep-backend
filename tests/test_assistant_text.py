@@ -6,6 +6,7 @@ from domain.services.assistant.text import (
     afirma_haber_actuado,
     invita_a_confirmar,
     limpiar_markdown,
+    promete_crear,
 )
 
 
@@ -99,3 +100,45 @@ class TestInvitaAConfirmar:
 
     def test_un_texto_vacio_no_rompe(self):
         assert invita_a_confirmar(None) is False
+
+
+class TestPrometeCrear:
+    """Prometer que algo se va a crear ahora.
+
+    No es una mentira como "la creé", pero si el turno termina ahi sin llamar
+    a proponer_actividad, la tarjeta que esa frase le anuncia al usuario no
+    existe. Con el borrador completo el servidor la fuerza.
+    """
+
+    @pytest.mark.parametrize(
+        "texto",
+        [
+            "Perfecto, te voy a crear la actividad de Calculo.",
+            "Voy a añadir tu clase de programacion movil.",
+            "Voy a registrar el gimnasio en tu semana.",
+            "Crearé la tarea con esos datos.",
+            "Te la agregaré apenas confirme el horario.",
+            "Dale, te la creo.",
+            "¿La creo? Ya tengo todos los datos.",
+            "La voy a agendar para el martes.",
+        ],
+    )
+    def test_detecta_la_promesa(self, texto):
+        assert promete_crear(texto) is True
+
+    @pytest.mark.parametrize(
+        "texto",
+        [
+            "Cuando tenga los dias, la agrego.",
+            "¿Cuánto dura la clase, en minutos?",
+            "¿Quieres que la modifique?",
+            "Creo que ya tengo todo lo que necesito.",
+            "El martes de 8 a 10 y no hay más.",
+            "La clase dura 4 horas y su horario es flexible.",
+        ],
+    )
+    def test_no_marca_lo_que_no_es_una_promesa(self, texto):
+        assert promete_crear(texto) is False
+
+    def test_un_texto_vacio_no_rompe(self):
+        assert promete_crear(None) is False

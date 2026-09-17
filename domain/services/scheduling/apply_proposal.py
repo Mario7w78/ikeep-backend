@@ -63,7 +63,9 @@ class Repositorios(Protocol):
 
 
 def _minutos_a_hhmm(minutos: int) -> str:
-    return f"{minutos // 60:02d}:{minutos % 60:02d}"
+    """HH:mm dentro del dia; horas >= 1440 (fin ya del dia siguiente) se
+    enrollan a 00-23 y el cruce se senala con end < start."""
+    return f"{(minutos % 1440) // 60:02d}:{minutos % 60:02d}"
 
 
 def _horas_por_dia(valor: Any, defecto: int, dias: int) -> list[int]:

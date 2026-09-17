@@ -106,3 +106,43 @@ def invita_a_confirmar(texto: str | None) -> bool:
     if not texto:
         return False
     return any(patron.search(texto) for patron in _INVITACIONES)
+
+
+# Promesas de que algo se va a crear ahora mismo.
+#
+# "Voy a crearla" no es una mentira como "la creé": no dice que ya paso. Pero
+# si el turno termina en texto sin llamar a proponer_actividad, la promesa es
+# el mismo callejon sin salida que la invitacion: el usuario leeria que la
+# tarjeta va a aparecer y no habria nada que confirmar. Con el borrador
+# completo la respuesta correcta no es corregir al modelo, es mostrarle la
+# tarjeta al usuario.
+_PROMESAS_DE_CREACION = (
+    # "voy a crear", "te voy a añadir", "la voy a agendar".
+    re.compile(
+        r"\bvoy\s+a\s+(cre[ae]r|agregar|a[ñn]adir|registrar|programar|agendar|guardar)\b",
+        re.IGNORECASE,
+    ),
+    # "crearé", "registraré", "te la agregaré".
+    re.compile(
+        r"\b(crear[ée]|agregar[ée]|a[ñn]adir[ée]|registrar[ée]|programar[ée]|agendar[ée]|guardar[ée])\b",
+        re.IGNORECASE,
+    ),
+    # Presente con intencion de crear ("la creo", "te la creo", "¿La creo?",
+    # "quieres que la cree"). "la creen" (creer el verbo) no coincide: se exige
+    # fin de palabra despues de cre[eo].
+    re.compile(r"\b(te\s+)?la\s+(voy\s+a\s+)?cre[eo]\b", re.IGNORECASE),
+)
+
+
+def promete_crear(texto: str | None) -> bool:
+    """Promete el texto crear algo sin haberlo propuesto aun.
+
+    Solo importa cuando el turno no lleva propuesta. A diferencia de
+    afirma_haber_actuado, el futuro es legitimo si el borrador sigue
+    incompleto: "cuando tenga los dias, te la creo" describe lo que va a
+    pasar. La promesa se vuelve un problema recien cuando el borrador esta
+    completo y la tarjeta no aparece; de eso se encarga el bucle.
+    """
+    if not texto:
+        return False
+    return any(patron.search(texto) for patron in _PROMESAS_DE_CREACION)

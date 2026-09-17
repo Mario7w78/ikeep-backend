@@ -662,3 +662,69 @@ class TestNoPedirConfirmacionSinProponer:
 
         assert resultado.mensaje == "¿Cuántos minutos dura?"
         assert len(modelo.llamadas) == 1
+
+
+class TestLaTarjetaSiempreAparece:
+    """La garantia de la tarjeta de propuesta.
+
+    El modelo puede terminar el turno prometiendo que va a crear algo sin
+    llamar a proponer_actividad. Es la version en futuro de la invitacion:
+    "Voy a crear tu actividad" y que la tarjeta no aparezca deja al usuario
+    leyendo una promesa que no puede confirmar. Con el borrador completo, el
+    servidor la fuerza en vez de dejar pasar el texto.
+    """
+
+    def test_promesa_sin_herramienta_termina_en_tarjeta(self):
+        completo = Borrador(
+            name="Calculo", activity_type="clase", is_fixed=False, duracion_minutos=60
+        )
+        modelo = ModeloGuionado(
+            texto("Perfecto, te voy a crear la actividad de Calculo."),
+            texto("Dale, te la creo."),
+        )
+
+        resultado = servicio(modelo).responder(
+            mensaje="dale", borrador=completo, turnos=[], ahora=AHORA
+        )
+
+        assert resultado.tipo == "propuesta"
+        assert resultado.propuesta.tipo == "crear"
+        assert resultado.propuesta.borrador.name == "Calculo"
+
+    def test_la_invitacion_repetida_con_borrador_completo_fuerza_tarjeta(self):
+        """Despues de la correccion el modelo vuelve a invitar sin llamar la
+        herramienta. Antes caia al texto plano y la promesa quedaba sin
+        respuesta; ahora se muestra la tarjeta que el modelo prometio."""
+        completo = Borrador(
+            name="Gimnasio",
+            activity_type="tarea",
+            is_fixed=True,
+            schedule=[BloqueHorario(day="Martes", start_time=600, end_time=720)],
+        )
+        modelo = ModeloGuionado(
+            texto("La clase, la creo en cuanto me confirmes."),
+            texto("¿La creo? Ya tengo todos los datos."),
+        )
+
+        resultado = servicio(modelo).responder(
+            mensaje="dale", borrador=completo, turnos=[], ahora=AHORA
+        )
+
+        assert resultado.tipo == "propuesta"
+        assert resultado.propuesta.tipo == "crear"
+
+    def test_borrador_incompleto_no_fuerza_nada(self):
+        """Prometer a futuro con datos a medias es legitimo: describe lo que
+        pasara cuando se junten. Ahí no hay nada que mostrar todavia."""
+        modelo = ModeloGuionado(
+            texto("Cuando tenga los dias, te la creo."),
+            texto("Voy a crear tu actividad entonces."),
+        )
+
+        resultado = servicio(modelo).responder(
+            mensaje="dale", borrador=Borrador(name="Calculo"), turnos=[], ahora=AHORA
+        )
+
+        assert resultado.tipo == "pregunta"
+        assert resultado.propuesta is None
+        assert resultado.mensaje == "Voy a crear tu actividad entonces."

@@ -33,6 +33,7 @@ from domain.services.assistant.text import (
     afirma_haber_actuado,
     invita_a_confirmar,
     limpiar_markdown,
+    promete_crear,
 )
 from domain.services.assistant.tools import (
     TOOLS_DE_LECTURA,
@@ -275,29 +276,30 @@ class ServicioConversacion:
                 # Pedir confirmacion sin propuesta es un callejon sin
                 # salida: el unico boton que confirma es el de la tarjeta, y
                 # no existe. El usuario escribe "Confirmo" y no pasa nada.
-                if invita_a_confirmar(respuesta.texto) and not ya_corregi:
+                invita = invita_a_confirmar(respuesta.texto)
+                afirma = afirma_haber_actuado(respuesta.texto)
+                promete = promete_crear(respuesta.texto)
+
+                if (invita or afirma or promete) and not ya_corregi:
                     ya_corregi = True
-                    logger.warning("El modelo pidio confirmar sin proponer nada.")
+                    logger.warning(
+                        "El modelo termino el turno sin proponer nada: %s.",
+                        "afirmo haber actuado"
+                        if afirma
+                        else "pidio confirmar o prometio crear",
+                    )
                     turnos_nuevos.append(
                         {"role": "assistant", "content": respuesta.texto or ""}
                     )
-                    turnos_nuevos.append({"role": "system", "content": _SIN_PROPUESTA})
+                    turnos_nuevos.append(
+                        {
+                            "role": "system",
+                            "content": _CORRECCION if afirma else _SIN_PROPUESTA,
+                        }
+                    )
                     continue
 
-                if afirma_haber_actuado(respuesta.texto):
-                    if not ya_corregi:
-                        ya_corregi = True
-                        logger.warning(
-                            "El modelo afirmo haber actuado sin proponer nada."
-                        )
-                        turnos_nuevos.append(
-                            {"role": "assistant", "content": respuesta.texto or ""}
-                        )
-                        turnos_nuevos.append(
-                            {"role": "system", "content": _CORRECCION}
-                        )
-                        continue
-
+                if afirma:
                     logger.error(
                         "El modelo insistio en afirmar que actuo. Se reemplaza."
                     )
@@ -308,6 +310,26 @@ class ServicioConversacion:
                         turnos=turnos_nuevos
                         + [{"role": "assistant", "content": _NO_SE_GUARDO}],
                         propuesta=None,
+                    )
+
+                # Despues de la correccion el modelo sigue invitando o
+                # prometiendo crear sin llamar la herramienta. Con el
+                # borrador completo no hay nada que corregir: la tarjeta ES
+                # lo que prometio, y el boton de confirmar existe. Sin ella,
+                # el usuario leeria la promesa y no podria responderla.
+                if (invita or promete) and borrador.esta_completo:
+                    logger.warning(
+                        "El modelo insiste en prometer sin llamar la "
+                        "herramienta; se fuerza la propuesta con el borrador "
+                        "completo."
+                    )
+                    return ResultadoConversacion(
+                        tipo="propuesta",
+                        mensaje=limpiar_markdown(respuesta.texto),
+                        borrador=borrador,
+                        turnos=turnos_nuevos
+                        + [{"role": "assistant", "content": respuesta.texto or ""}],
+                        propuesta=Propuesta(tipo="crear", borrador=borrador),
                     )
 
                 return ResultadoConversacion(
