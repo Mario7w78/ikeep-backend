@@ -151,6 +151,47 @@ class TestExcepciones:
         assert date(2026, 8, 11) not in fechas(expandir([actividad()], excepciones, LUNES, DOMINGO))
 
 
+class TestSinDuplicados:
+    """Una actividad no puede caer dos veces el mismo día."""
+
+    def _dos_veces_por_semana(self) -> ActividadUsuario:
+        return actividad(
+            dias_habilitados=["Martes", "Jueves"],
+            config_por_dia={
+                d: {"groupId": 1, "partitions": []} for d in ("Martes", "Jueves")
+            },
+        )
+
+    def test_mover_a_un_dia_donde_ya_cae_no_la_duplica(self):
+        # El martes 11 se pasa al jueves 13, donde la actividad ya cae por su
+        # regla. Antes aparecía dos veces ese jueves.
+        excepciones = [Excepcion("act-1", date(2026, 8, 11), "movida", date(2026, 8, 13))]
+
+        salida = expandir([self._dos_veces_por_semana()], excepciones, LUNES, DOMINGO)
+
+        assert fechas(salida).count(date(2026, 8, 13)) == 1
+        assert date(2026, 8, 11) not in fechas(salida)
+
+    def test_gana_la_movida_para_no_perder_el_rastro(self):
+        excepciones = [Excepcion("act-1", date(2026, 8, 11), "movida", date(2026, 8, 13))]
+
+        salida = expandir([self._dos_veces_por_semana()], excepciones, LUNES, DOMINGO)
+        jueves = [o for o in salida if o.fecha == date(2026, 8, 13)][0]
+
+        assert jueves.movida_desde == date(2026, 8, 11)
+
+    def test_dos_movidas_al_mismo_dia_dejan_una(self):
+        excepciones = [
+            Excepcion("act-1", date(2026, 8, 11), "movida", date(2026, 8, 13)),
+            Excepcion("act-1", date(2026, 8, 6), "movida", date(2026, 8, 13)),
+        ]
+
+        salida = expandir([self._dos_veces_por_semana()], excepciones, LUNES, DOMINGO)
+
+        assert fechas(salida).count(date(2026, 8, 13)) == 1
+        assert date(2026, 8, 11) not in fechas(salida)
+        assert date(2026, 8, 6) not in fechas(salida)
+
 class TestOrdenYBordes:
     def test_vienen_ordenadas_por_fecha(self):
         a = actividad(

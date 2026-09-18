@@ -144,7 +144,24 @@ def expandir(
             )
 
     ocurrencias.sort(key=lambda o: (o.fecha, o.actividad.nombre))
-    return ocurrencias
+    return _sin_duplicados(ocurrencias)
+
+
+def _sin_duplicados(ocurrencias: list[Ocurrencia]) -> list[Ocurrencia]:
+    """Una actividad no puede caer dos veces el mismo día.
+
+    Pasa al mover una ocurrencia a un día en el que la actividad ya caía por
+    su regla, o al mover dos ocurrencias al mismo día. En el choque gana la
+    movida: es la acción explícita del usuario, y así la pantalla puede seguir
+    mostrando "reprogramada" en vez de hacerla desaparecer sin rastro.
+    """
+    vistas: dict[tuple[str, date], Ocurrencia] = {}
+    for o in ocurrencias:
+        clave = (o.actividad.id, o.fecha)
+        previa = vistas.get(clave)
+        if previa is None or (previa.movida_desde is None and o.movida_desde is not None):
+            vistas[clave] = o
+    return list(vistas.values())
 
 
 def _fechas_del_rango(desde: date, hasta: date, dias: set[int]) -> list[date]:
