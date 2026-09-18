@@ -11,6 +11,7 @@ import pytest
 
 from infrastructure.adapters.outbound.supabase.client import (
     REQUIRED_TABLES,
+    _cliente_para_token,
     anon_client,
     client_for_user,
     missing_tables,
@@ -28,9 +29,11 @@ def settings_with_supabase():
         SUPABASE_ANON_KEY="clave-de-prueba",
     )
     anon_client.cache_clear()
+    _cliente_para_token.cache_clear()
     yield
     settings_module._settings = original
     anon_client.cache_clear()
+    _cliente_para_token.cache_clear()
 
 
 def _stub_client(failing: set[str] | None = None) -> Mock:
@@ -65,8 +68,20 @@ class TestFabricaDeClientes:
         cliente.postgrest.auth.assert_called_once_with("el-jwt-del-usuario")
         assert cliente is create.return_value
 
-    def test_el_cliente_de_usuario_no_se_cachea(self):
-        """Tokens expire and belong to different people — never reuse one."""
+    def test_el_cliente_de_usuario_se_reusa_para_el_mismo_token(self):
+        """El pool de conexiones se reusa: crearlo por consulta fugaba memoria."""
+        with patch(
+            "infrastructure.adapters.outbound.supabase.client.create_client"
+        ) as create:
+            primero = client_for_user("token-a")
+            segundo = client_for_user("token-a")
+
+        assert create.call_count == 1
+        assert primero is segundo
+        primero.postgrest.auth.assert_called_once_with("token-a")
+
+    def test_dos_tokens_no_comparten_cliente(self):
+        """La clave del cache es el token: nunca se mezclan dos sesiones."""
         with patch(
             "infrastructure.adapters.outbound.supabase.client.create_client"
         ) as create:

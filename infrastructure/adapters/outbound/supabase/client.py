@@ -53,17 +53,39 @@ def anon_client() -> Client:
     return create_client(url, key)
 
 
-def client_for_user(access_token: str) -> Client:
-    """Client that acts as the caller, so RLS scopes every query to them.
+#: Tope de clientes cacheados. La clave es el token, asi que el usuario activo
+#: siempre tiene el suyo; el tope solo evita que el dict crezca sin fin a medida
+#: que los tokens se renuevan.
+_MAX_CLIENTES = 64
 
-    Deliberately not cached. Tokens expire and belong to different people;
-    a cached client would eventually answer one user with another's session.
-    Construction makes no network call, so the cost is small.
+
+@lru_cache(maxsize=_MAX_CLIENTES)
+def _cliente_para_token(access_token: str) -> Client:
+    """Cliente cacheado POR TOKEN.
+
+    La clave es la credencial misma, no el usuario: dos personas nunca pueden
+    compartir entrada (sus tokens difieren) y un token renovado es una entrada
+    nueva, asi que la objecion de "un cliente contestando por otro" no aplica.
+    El tope acota la memoria.
+
+    Antes se creaba uno por CONSULTA y ninguno se cerraba: un solo
+    `/logros/resumen` levantaba ~6-10 clientes con sus pools de httpx, y la
+    acumulacion terminaba en el reinicio de la instancia en Render (502).
     """
     url, key = _credentials()
     client = create_client(url, key)
     client.postgrest.auth(access_token)
     return client
+
+
+def client_for_user(access_token: str) -> Client:
+    """Client that acts as the caller, so RLS scopes every query to them.
+
+    Reusa el cliente del token (ver `_cliente_para_token`): construirlo por
+    consulta fugaba sockets y memoria. La construccion no hace ninguna llamada
+    de red, pero el cliente guarda un pool de conexiones que hay que reusar.
+    """
+    return _cliente_para_token(access_token)
 
 
 def client_con_rol_de_servicio() -> Client:
