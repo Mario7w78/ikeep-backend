@@ -352,8 +352,23 @@ def equilibrio(
     )
 
 
-def _cuantas_tocan(actividades, fecha: date) -> int:
-    """Cuantas actividades corresponden a ese dia de la semana.
+def _fecha_unica(actividad) -> date | None:
+    """La fecha propia de un evento que ocurre una sola vez, si la tiene.
+
+    Con `fecha_unica` puesta, los dias de la semana no aplican: la actividad
+    ocurre ese dia y ningun otro. Es el mismo criterio que
+    `domain.services.calendar.expansion.expandir`, y tiene que serlo: el
+    horario que el usuario ve sale de alla, asi que contar aca distinto
+    produce un total que no coincide con lo que la pantalla muestra.
+    """
+    valor = getattr(actividad, "fecha_unica", None)
+    if valor is None:
+        return None
+    return valor if isinstance(valor, date) else date.fromisoformat(str(valor)[:10])
+
+
+def _corresponde_a(actividad, fecha: date) -> bool:
+    """Si esa actividad ocurre ese dia.
 
     Se cuenta sobre la definicion y no sobre el horario generado: el horario
     puede no existir todavia —una cuenta nueva no genero ninguno— y el
@@ -362,17 +377,21 @@ def _cuantas_tocan(actividades, fecha: date) -> int:
     Las de dia opcional cuentan una vez: el solver elige el dia, asi que
     sumarlas en cada dia habilitado inflaria el total de toda la semana.
     """
-    indice = fecha.weekday()
-    total = 0
-    for actividad in actividades:
-        indices = {
-            DIA_A_INDICE[d] for d in actividad.dias_habilitados if d in DIA_A_INDICE
-        }
-        if actividad.dia_opcional:
-            total += 1 if indices else 0
-        elif indice in indices:
-            total += 1
-    return total
+    unica = _fecha_unica(actividad)
+    if unica is not None:
+        return unica == fecha
+
+    indices = {
+        DIA_A_INDICE[d] for d in actividad.dias_habilitados if d in DIA_A_INDICE
+    }
+    if actividad.dia_opcional:
+        return bool(indices)
+    return fecha.weekday() in indices
+
+
+def _cuantas_tocan(actividades, fecha: date) -> int:
+    """Cuantas actividades corresponden a ese dia."""
+    return sum(1 for actividad in actividades if _corresponde_a(actividad, fecha))
 
 
 def _con_estado(estados: dict[str, str], estado: EstadoCompletado) -> list[str]:
@@ -387,18 +406,7 @@ def _ids_que_tocan(actividades, fecha: date) -> list[str]:
     Es la contraparte de `_cuantas_tocan`: el cierre no puede contar, tiene
     que saber a cuales referirse.
     """
-    indice = fecha.weekday()
-    ids: list[str] = []
-    for actividad in actividades:
-        indices = {
-            DIA_A_INDICE[d] for d in actividad.dias_habilitados if d in DIA_A_INDICE
-        }
-        if actividad.dia_opcional:
-            if indices:
-                ids.append(actividad.id)
-        elif indice in indices:
-            ids.append(actividad.id)
-    return ids
+    return [actividad.id for actividad in actividades if _corresponde_a(actividad, fecha)]
 
 
 def _pendientes_pasados(

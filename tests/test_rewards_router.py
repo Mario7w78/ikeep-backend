@@ -4,7 +4,7 @@ Sin el evento "termine esto" no hay ciclo: ni racha, ni progreso, ni nada que
 la mascota pueda celebrar.
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from unittest.mock import Mock
 
 import pytest
@@ -57,7 +57,7 @@ OTRO_DIA = [
 ][(HOY.weekday() + 3) % 7]
 
 
-def actividad(id_="act-1", dias=(NOMBRE_DEL_DIA,), opcional=False):
+def actividad(id_="act-1", dias=(NOMBRE_DEL_DIA,), opcional=False, fecha_unica=None):
     return ActividadUsuario(
         id=id_,
         propietario_id="usuario-1",
@@ -65,6 +65,7 @@ def actividad(id_="act-1", dias=(NOMBRE_DEL_DIA,), opcional=False):
         tipo="FIXED",
         dias_habilitados=list(dias),
         dia_opcional=opcional,
+        fecha_unica=fecha_unica,
     )
 
 
@@ -172,6 +173,30 @@ class TestResumen:
         cuerpo = client.get(f"/api/v1/logros/resumen?fecha={HOY_ISO}").json()
 
         assert cuerpo["progreso"]["total"] == 1
+
+    def test_una_de_fecha_unica_cuenta_el_dia_en_que_ocurre(self, client, actividades):
+        # Un parcial: ocurre hoy y ningun otro dia. Sin `dias_habilitados`,
+        # contarlo por los dias de la semana lo dejaba fuera del total del dia
+        # en que si ocurre, y marcar no movia el anillo.
+        actividades.list_all.return_value = [
+            actividad("act-1", dias=(), fecha_unica=HOY_ISO)
+        ]
+
+        cuerpo = client.get(f"/api/v1/logros/resumen?fecha={HOY_ISO}").json()
+
+        assert cuerpo["progreso"]["total"] == 1
+
+    def test_una_de_fecha_unica_no_cuenta_otro_dia(self, client, actividades):
+        manana = HOY + timedelta(days=1)
+        actividades.list_all.return_value = [
+            actividad("act-1", dias=(), fecha_unica=HOY_ISO)
+        ]
+
+        cuerpo = client.get(
+            f"/api/v1/logros/resumen?fecha={manana.isoformat()}"
+        ).json()
+
+        assert cuerpo["progreso"]["total"] == 0
 
     def test_devuelve_que_se_completo_para_marcarlo_en_la_lista(
         self, client, completados, actividades
@@ -396,6 +421,21 @@ class TestElCierreDelDia:
         por_id = {c.args[2]: c.args[4].value for c in completados.marcar.call_args_list}
         assert por_id == {"act-1": "hecha", "act-2": "no_hecha"}
 
+    def test_hice_todo_incluye_las_de_fecha_unica(self, client, completados, actividades):
+        # El cierre resuelve "las que tocan" ese dia. Una de una sola vez toca
+        # aunque no tenga dia de la semana, y quedaba afuera para siempre.
+        actividades.list_all.return_value = [
+            actividad("act-1", dias=(), fecha_unica=HOY_ISO)
+        ]
+
+        client.post(
+            "/api/v1/logros/cerrar-dia",
+            json={"fecha": HOY_ISO, "respuesta": "todo"},
+        )
+
+        marcadas = {c.args[2] for c in completados.marcar.call_args_list}
+        assert marcadas == {"act-1"}
+
     def test_un_dia_dificil_no_pregunta_nada(self, client, completados, actividades):
         # Cero completadas, cero preguntas, cero penalizacion. Es el boton que
         # ninguna app de habitos tiene, y sin el la unica salida honesta es
@@ -613,3 +653,49 @@ class TestNoVolverAPreguntarLoYaContestado:
 
         assert cuerpo["completados_ids"] == ["act-1"]
         assert cuerpo["no_hechas_ids"] == ["act-2"]
+
+
+class TestElCarryOver:
+    """Lo que quedo sin responder en los dias anteriores.
+
+    Se apoya en `_ids_que_tocan`: si una actividad no "toca" ese dia, nunca
+    se pregunta por ella y su deuda desaparece sin dejar rastro.
+    """
+
+    def test_una_de_fecha_unica_de_ayer_se_pregunta(self, client, completados, actividades):
+        ayer = HOY - timedelta(days=1)
+        actividades.list_all.return_value = [
+            actividad("act-1", dias=(), fecha_unica=ayer.isoformat())
+        ]
+        desfase = _desfase_local()
+
+        cuerpo = client.get(
+            f"/api/v1/logros/resumen?fecha={HOY_ISO}&desfase_utc_minutos={desfase}"
+        ).json()
+
+        pendientes = cuerpo["pendientes_pasados"]
+        assert [p["fecha"] for p in pendientes] == [ayer.isoformat()]
+        assert pendientes[0]["items"][0]["activity_id"] == "act-1"
+
+    def test_una_de_fecha_unica_de_hoy_no_es_carry_over(self, client, completados, actividades):
+        # El carry-over es solo de dias anteriores; hoy se pregunta por el
+        # mazo, no por el carry-over.
+        actividades.list_all.return_value = [
+            actividad("act-1", dias=(), fecha_unica=HOY_ISO)
+        ]
+        desfase = _desfase_local()
+
+        cuerpo = client.get(
+            f"/api/v1/logros/resumen?fecha={HOY_ISO}&desfase_utc_minutos={desfase}"
+        ).json()
+
+        assert cuerpo["pendientes_pasados"] == []
+
+
+def _desfase_local() -> int:
+    """El desfase del huso de quien corre el test.
+
+    `_pendientes_pasados` decide "ayer" con el dia del usuario y no el UTC;
+    sin esto, el test pasa en un huso y falla en otro segun la hora.
+    """
+    return int(datetime.now().astimezone().utcoffset().total_seconds() // 60)
