@@ -1,8 +1,8 @@
 """Rachas y progreso diario.
 
-Aparecer (reportar energía) marca el día. Sin ese gesto no hay racha, ni
-progreso, ni nada que la mascota pueda celebrar. Duolingo funciona porque
-existe el momento en que terminas la lección.
+Aparecer (reportar energía) o completar algo marca el día. Sin algún gesto no
+hay racha, ni progreso, ni nada que la mascota pueda celebrar. Duolingo
+funciona porque existe el momento en que terminas la lección.
 
 El calculo vive aca y no en una consulta SQL porque las reglas de borde —que
 cuenta como romper una racha, si hoy todavia cuenta— son decisiones de
@@ -15,7 +15,7 @@ from datetime import date, timedelta
 
 @dataclass(frozen=True)
 class Racha:
-    """Dias consecutivos con presencia (se reporto energia ese dia)."""
+    """Dias consecutivos con algun gesto: se reporto energia o se completo algo."""
 
     actual: int
     mejor: int

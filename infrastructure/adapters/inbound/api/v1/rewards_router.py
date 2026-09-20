@@ -1,8 +1,8 @@
 """Completar actividades, racha y progreso del dia.
 
-Sin el evento "termine esto" no hay nada que festejar: ni racha, ni progreso,
-ni mascota que celebre. Es la pieza que faltaba para que la app tenga un ciclo
-y no solo un horario.
+Sin algun gesto —terminar algo o reportar energia— no hay nada que festejar:
+ni racha, ni progreso, ni mascota que celebre. Es la pieza que faltaba para
+que la app tenga un ciclo y no solo un horario.
 
 Las fechas las manda el cliente. El servidor no puede saber que dia es para el
 usuario —el mismo error que ya tiene GET /energia/hoy usando medianoche UTC—,
@@ -283,17 +283,15 @@ def resumen(
     completados = _con_estado(estados, EstadoCompletado.HECHA)
     no_hechas = _con_estado(estados, EstadoCompletado.NO_HECHA)
 
-    # La racha mide PRESENCIA, no rendimiento: cuenta los dias en que el
-    # usuario aparecio y dijo como estaba. Antes contaba dias con al menos un
-    # completado, y se rompia justo en la semana de examenes — el momento en
-    # que mas importa que la app no castigue.
+    # Un dia cuenta como vivido con cualquiera de los dos gestos: aparecer y
+    # decir como estaba (el reporte de energia) o haber terminado algo. Solo
+    # rendimiento castigaba la semana de examenes; solo presencia castigaba el
+    # dia en que se completo todo sin tocar el resumen. La union de los dos no
+    # castiga ninguna de las dos.
     desde = fecha - timedelta(days=_VENTANA_DIAS)
-    dias_presente = energia_repo.dias_con_registro(token, desde, desfase_utc_minutos)
-    racha = calcular_racha(dias_presente, fecha)
-
-    # El historial que dibuja la cuadricula sigue siendo el de lo hecho: son
-    # dos preguntas distintas y la pantalla muestra las dos.
     dias_con_algo_hecho = repo.dias_con_actividad(token, desde)
+    dias_presente = energia_repo.dias_con_registro(token, desde, desfase_utc_minutos)
+    racha = calcular_racha(dias_presente | dias_con_algo_hecho, fecha)
 
     total = _cuantas_tocan(actividades_repo.list_all(token), fecha)
     progreso = ProgresoDelDia(completadas=len(completados), total=total)

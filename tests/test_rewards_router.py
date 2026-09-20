@@ -266,11 +266,14 @@ class TestHistorial:
         assert cuerpo["dias_completados"] == []
 
 
-class TestLaRachaEsPresencia:
-    """Aparecer y decir como estas, no cumplir.
+class TestLaRachaUnePresenciaYHechos:
+    """Un dia cuenta con cualquiera de los dos gestos.
 
-    Antes contaba dias con al menos un completado, y se rompia justo en la
-    semana de examenes — el momento en que mas importa que la app no castigue.
+    Aparecer y decir como estas, o haber terminado algo. Antes contaba solo
+    dias con al menos un completado, y se rompia justo en la semana de
+    examenes; despues contaba solo presencia, y se rompia el dia en que se
+    completaba todo sin tocar el resumen. La union no castiga ninguna de las
+    dos.
     """
 
     def test_una_semana_sin_completar_nada_conserva_la_racha(self, client, energia, completados):
@@ -281,23 +284,34 @@ class TestLaRachaEsPresencia:
 
         assert cuerpo["racha"]["actual"] == 3
 
-    def test_completar_sin_aparecer_no_da_racha(self, client, energia, completados):
-        # No deberia poder pasar, pero si pasara la racha mide presencia.
+    def test_completar_sin_aparecer_tambien_da_racha(self, client, energia, completados):
+        # Hacer las actividades es un gesto como cualquier otro.
         energia.dias_con_registro.return_value = set()
         completados.dias_con_actividad.return_value = dias_atras(1, 2)
 
         cuerpo = client.get(f"/api/v1/logros/resumen?fecha={HOY_ISO}").json()
 
-        assert cuerpo["racha"]["actual"] == 0
+        assert cuerpo["racha"]["actual"] == 2
+
+    def test_un_dia_avecinda_con_ambos_gestos(self, client, energia, completados):
+        # Una parte del tramo por presencia y otra por hechos: la union los
+        # junta en una sola racha.
+        energia.dias_con_registro.return_value = dias_atras(1, 2)
+        completados.dias_con_actividad.return_value = dias_atras(3, 4)
+
+        cuerpo = client.get(f"/api/v1/logros/resumen?fecha={HOY_ISO}").json()
+
+        assert cuerpo["racha"]["actual"] == 4
 
     def test_el_historial_sigue_mostrando_lo_hecho(self, client, energia, completados):
-        # Son dos preguntas distintas y la pantalla muestra las dos.
+        # Los dias de la cuadricula siguen siendo solo los hechos: otra
+        # pregunta, y la pantalla muestra las dos por separado.
         energia.dias_con_registro.return_value = dias_atras(1)
         completados.dias_con_actividad.return_value = dias_atras(2)
 
         cuerpo = client.get(f"/api/v1/logros/resumen?fecha={HOY_ISO}").json()
 
-        assert cuerpo["racha"]["actual"] == 1
+        assert cuerpo["racha"]["actual"] == 2
         assert cuerpo["dias_completados"] == [(HOY - timedelta(days=2)).isoformat()]
 
     def test_el_desfase_del_cliente_llega_a_la_consulta(self, client, energia):
