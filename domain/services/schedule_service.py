@@ -1,5 +1,6 @@
 import math
 from dataclasses import dataclass, field
+from datetime import date
 
 from ortools.sat.python import cp_model
 
@@ -22,6 +23,22 @@ from domain.services.time_utils import (
 
 
 # ──────────────────────────── Config ────────────────────────────
+#
+# Taxonomía de restricciones (para que la numeración no engañe):
+#
+#   DURAS  — no admiten penalización, el modelo es inviable si no se cumplen.
+#     RD-01  NoOverlap absoluto sobre la línea de tiempo semanal
+#     RD-02/03 Actividades fijas ancladas por constante
+#     RD-04  Traslado entre ubicaciones
+#     RD-05  Una tarea como máximo en un día
+#     RD-06  Bloques de sueño
+#     RD-07  Descanso diario garantizado            (antes etiquetado RB-07)
+#     RD-08  Máx. 1 tarea difícil/día con energía
+#            TENDENCIA                             (declarado dentro de _rb_01)
+#     Nota:  la "ventana activa por día" no es una restricción, es el dominio de s/e.
+#
+#   BLANDAS — aportan términos a Minimize(sum(...)); se pueden desactivar con peso 0.
+#     RB-01..RB-06, RB-08, RB-09, RB-10, omitido (F9), rb_priority (desactivado)
 
 @dataclass
 class PenaltyWeights:
@@ -39,6 +56,12 @@ class PenaltyWeights:
 
 
 MIN_REST_BLOCK_MINUTES = 30
+
+#: Días de holgura que RB-10 tolera antes de empezar a penalizar. Corta a propósito:
+#: si la rampa fuera igual a ``dias_totales``, la única colocación con penalización 0
+#: sería el primer día de la ventana y la regla degeneraría en "programa todo lo que
+#: tenga plazo el primer día posible" en vez de "no lo postergues".
+RB10_HOLGURA_DIAS = 2
 
 _INDICE_A_DIA = (
     "Lunes",
@@ -64,6 +87,38 @@ def _abs_a_hora_legible(abs_minutos: int) -> str:
     cruce de madrugada (Domingo 11 PM) lea 'Lunes 01:00 AM'."""
     dia, hora = to_dia_hora(abs_minutos)
     return f"{_INDICE_A_DIA[dia % 7]} {_formato_hora(hora)}"
+
+
+def _dia_de_fecha_limite(fecha_limite: str | None) -> int | None:
+    """Traduce una fecha límite a índice de día (0=Lunes), o None si no se puede.
+
+    Acepta un índice 0-6 ya resuelto, una fecha ISO 'YYYY-MM-DD' o el timestamp
+    completo que produce el frontend (``Date.toISOString()`` → '2026-10-05T00:00:00.000Z',
+    del que solo interesan los 10 primeros caracteres).
+
+    Reducir a ``weekday()`` no pierde información respecto al modelo: el día del solver
+    ES un día de la semana (lunes=0), no una fecha. ``dia_inicio`` es un offset dentro de
+    esa semana de siete índices y ningún camino de producción lo deriva del reloj, así que
+    un plazo y un día del modelo hablan el mismo idioma.
+
+    Lo que sí es cierto, y es una limitación del modelo y no de esta función: una fecha
+    fuera de la semana planificada se colapsa a su día de la semana. Un viernes ya vencido
+    puede acabar cayendo en el viernes venidero de la semana que se está planificando. Le
+    pasa igual a las actividades fijas, a ``dia_desde``/``dia_hasta`` y a los bloques de
+    sueño. Es inherente a modelar una semana por índices, no a leer el plazo.
+    """
+    if not fecha_limite:
+        return None
+    texto = str(fecha_limite).strip()
+    if not texto:
+        return None
+    if texto.isdigit():
+        dia = int(texto)
+        return dia if 0 <= dia <= 6 else None
+    try:
+        return date.fromisoformat(texto[:10]).weekday()
+    except ValueError:
+        return None
 
 
 # ───────────────────── ScheduleOptimizer ─────────────────────
@@ -143,7 +198,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
         for act in solicitud.actividades_fijas:
             self._add_fixed(model, act, state)
 
-        # RB-07 (garantizada): bloque de descanso por día
+        # RD-07: descanso diario garantizado (RESTRICCIÓN DURA, ver _add_rest_blocks)
         self._add_rest_blocks(model, ctx, state)
 
         # Variables de decisión para tareas ancla (día fijo, hora flexible, OBLIGATORIAS)
@@ -309,6 +364,15 @@ class ScheduleOptimizer(AbstractSchedulerService):
 
     @staticmethod
     def _add_rest_blocks(model, ctx, state):
+        """RD-07 (antes etiquetado 'RB-07'): bloque de descanso diario garantizado.
+
+        RESTRICCIÓN DURA, no una penalización: `model.Add(p == 1)` obliga a que exista
+        un bloque de `MIN_REST_BLOCK_MINUTES` dentro de la ventana activa de cada día.
+        Se mantiene dura a propósito — es la garantía que el producto promete al usuario,
+        y su dominio se acota al segmento de la ventana donde el bloque cabe. Es también
+        la causa más frecuente de INFACTIBLE: si la ventana activa está casi llena, no
+        queda dónde colocar los 30 min.
+        """
         dia_inicio = state["meta"]["dia_inicio"]
         dias_totales = state["meta"]["dias_totales"]
         for dia in range(dia_inicio, dia_inicio + dias_totales):
@@ -391,6 +455,8 @@ class ScheduleOptimizer(AbstractSchedulerService):
             "dur": dur,
             "travel_to": tt,
             "travel_from": tf,
+            "fecha_limite": act.fecha_limite,
+            "dia_fecha_limite": _dia_de_fecha_limite(act.fecha_limite),
             "vars": {},
             "all_p": all_p,
         }
@@ -502,15 +568,26 @@ class ScheduleOptimizer(AbstractSchedulerService):
         """RB-01: penalizar tareas según patrón de energía.
 
         TRANSCRIPTORIO: penaliza ALTA que empiezan tarde si energía baja.
-        TENDENCIA:      max 1 ALTA/día + mismas penalizaciones.
+        TENDENCIA:      max 1 ALTA/día (RESTRICCIÓN DURA, ver nota) + mismas
+                        penalizaciones.
         CRONICO:        penaliza TODAS las tareas; ALTA con 2x, no-ALTA por duración.
+
+        Los dominios de las penalizaciones se derivan de `_tope_inicio_dia` y no de
+        la constante 1440. En ventanas que cruzan medianoche la variable `s` alcanza
+        `fin + 1440 - duracion`, así que un dominio fijo de 1440·w obligaba a apagar
+        la tarea: el modelo solo era viable omitiéndola y devolvía un horario "óptimo"
+        con cero bloques, sin ningún error visible. Un fallo silencioso, que es peor
+        que un INFEASIBLE porque no se ve.
         """
         w = self.weights.rb_01
         if w == 0:
             return
 
         if patron == PatronEnergia.TENDENCIA:
-            # Hard constraint: max 1 ALTA task per day
+            # RESTRICCIÓN DURA declarada dentro de una función blanda: con energía en
+            # bajada el usuario puede tener como máximo 1 tarea difícil por día. Se
+            # mantiene dura a propósito — el mensaje de infactibilidad de
+            # `_build_response` promete esta regla y test_dynamic_scheduling la fija.
             for dia in range(state["meta"]["dia_inicio"], state["meta"]["dia_inicio"] + state["meta"]["dias_totales"]):
                 alta_ps = [
                     info["vars"][dia]["p"]
@@ -528,7 +605,7 @@ class ScheduleOptimizer(AbstractSchedulerService):
                 if info["dificultad"] != Dificultad.ALTA:
                     continue
                 for dia, v in info["vars"].items():
-                    pen = model.NewIntVar(0, 1440 * w, f"rb01_{tid}_d{dia}")
+                    pen = model.NewIntVar(0, self._tope_inicio_dia(ctx, dia) * w, f"rb01_{tid}_d{dia}")
                     model.Add(pen == v["s"] * w).OnlyEnforceIf(v["p"])
                     model.Add(pen == 0).OnlyEnforceIf(v["p"].Not())
                     terms.append(pen)
@@ -539,13 +616,28 @@ class ScheduleOptimizer(AbstractSchedulerService):
             for tid, info in state["flex"].items():
                 for dia, v in info["vars"].items():
                     if info["dificultad"] == Dificultad.ALTA:
-                        pen = model.NewIntVar(0, 1440 * w * 2, f"rb01_{tid}_d{dia}")
+                        pen = model.NewIntVar(0, self._tope_inicio_dia(ctx, dia) * w * 2, f"rb01_{tid}_d{dia}")
                         model.Add(pen == v["s"] * w * 2).OnlyEnforceIf(v["p"])
                     else:
-                        pen = model.NewIntVar(0, 1440 * w, f"rb01_{tid}_d{dia}")
+                        # El término es constante (duracion · w), así que su dominio
+                        # exacto es ese valor; 1440·w se desbordaría con duraciones altas.
+                        pen = model.NewIntVar(0, info["dur"] * w, f"rb01_{tid}_d{dia}")
                         model.Add(pen == info["dur"] * w).OnlyEnforceIf(v["p"])
                     model.Add(pen == 0).OnlyEnforceIf(v["p"].Not())
                     terms.append(pen)
+
+    @staticmethod
+    def _tope_inicio_dia(ctx, dia: int) -> int:
+        """Cota superior real de la variable de inicio `s` para un día dado.
+
+        Es `day_end`, el mismo valor contra el que `_add_flexible_task` construye el
+        dominio de `s`. Para ventanas que cruzan medianoche vale `fin + 1440`, no 1440.
+        """
+        inicio = ctx.horario_inicio[dia]
+        fin = ctx.horario_fin[dia]
+        if is_crossing(inicio, fin):
+            return fin + MINUTES_PER_DAY
+        return fin
 
     def _rb_02(self, model, ctx, state, terms):
         """RB-02: penalizar concentrar muchas horas en un día."""
@@ -554,11 +646,11 @@ class ScheduleOptimizer(AbstractSchedulerService):
             return
         for dia in range(state["meta"]["dia_inicio"], state["meta"]["dia_inicio"] + state["meta"]["dias_totales"]):
             contribs: list = []
-            for info in state["flex"].values():
+            for tid, info in state["flex"].items():
                 if dia not in info["vars"]:
                     continue
                 v = info["vars"][dia]
-                part = model.NewIntVar(0, info["dur"], f"rb02c_{dia}")
+                part = model.NewIntVar(0, info["dur"], f"rb02c_{tid}_d{dia}")
                 model.Add(part == info["dur"]).OnlyEnforceIf(v["p"])
                 model.Add(part == 0).OnlyEnforceIf(v["p"].Not())
                 contribs.append(part)
@@ -593,6 +685,9 @@ class ScheduleOptimizer(AbstractSchedulerService):
                 pen = model.NewIntVar(0, w, f"rb03_pen_{tid}_d{dia}")
                 model.Add(pen == w).OnlyEnforceIf([v["p"], early])
                 model.Add(pen == w).OnlyEnforceIf([v["p"], late])
+                # El caso presente ∧ ¬early ∧ ¬late quedaba sin cláusula: 'pen' quedaba
+                # libre en [0, w] y solo Minimize lo empujaba a 0. Ahora queda fijado.
+                model.Add(pen == 0).OnlyEnforceIf([v["p"], early.Not(), late.Not()])
                 model.Add(pen == 0).OnlyEnforceIf(v["p"].Not())
                 terms.append(pen)
 
@@ -606,11 +701,11 @@ class ScheduleOptimizer(AbstractSchedulerService):
         for dia in range(state["meta"]["dia_inicio"], state["meta"]["dia_inicio"] + state["meta"]["dias_totales"]):
             day_range = abs_duration(ctx.horario_inicio[dia], ctx.horario_fin[dia])
             contribs: list = []
-            for info in state["flex"].values():
+            for tid, info in state["flex"].items():
                 if dia not in info["vars"]:
                     continue
                 v = info["vars"][dia]
-                part = model.NewIntVar(0, info["dur"], f"rb04c_{dia}")
+                part = model.NewIntVar(0, info["dur"], f"rb04c_{tid}_d{dia}")
                 model.Add(part == info["dur"]).OnlyEnforceIf(v["p"])
                 model.Add(part == 0).OnlyEnforceIf(v["p"].Not())
                 contribs.append(part)
@@ -665,19 +760,27 @@ class ScheduleOptimizer(AbstractSchedulerService):
         dia_inicio = state["meta"]["dia_inicio"]
         dias_totales = state["meta"]["dias_totales"]
         day_loads: dict[int, list] = {d: [] for d in range(dia_inicio, dia_inicio + dias_totales)}
-        for info in state["flex"].values():
+        for tid, info in state["flex"].items():
             for dia, v in info["vars"].items():
-                load = model.NewIntVar(0, info["dur"], f"rb08_l_{dia}")
+                load = model.NewIntVar(0, info["dur"], f"rb08_l_{tid}_d{dia}")
                 model.Add(load == info["dur"]).OnlyEnforceIf(v["p"])
                 model.Add(load == 0).OnlyEnforceIf(v["p"].Not())
                 day_loads[dia].append(load)
+        # Una sola variable de carga por día, compartida por los pares: antes se
+        # creaba `sd1` = `rb08_sd{d+1}` dentro del bucle de pares y colisionaba con el
+        # `sd` del día siguiente.
+        sd_por_dia = {
+            d: model.NewIntVar(0, 600, f"rb08_sd{d}")
+            for d, cargas in day_loads.items()
+            if cargas
+        }
+        for d in sd_por_dia:
+            model.Add(sd_por_dia[d] == sum(day_loads[d]))
         for d in range(dia_inicio, dia_inicio + dias_totales - 1):
-            if not day_loads[d] or not day_loads[d + 1]:
+            if d not in sd_por_dia or d + 1 not in sd_por_dia:
                 continue
-            sd = model.NewIntVar(0, 600, f"rb08_sd{d}")
-            sd1 = model.NewIntVar(0, 600, f"rb08_sd{d+1}")
-            model.Add(sd == sum(day_loads[d]))
-            model.Add(sd1 == sum(day_loads[d + 1]))
+            sd = sd_por_dia[d]
+            sd1 = sd_por_dia[d + 1]
             diff = model.NewIntVar(0, 600, f"rb08_diff{d}")
             model.Add(diff >= sd - sd1)
             model.Add(diff >= sd1 - sd)
@@ -712,15 +815,55 @@ class ScheduleOptimizer(AbstractSchedulerService):
                 terms.append(ch * w)
 
     def _rb_10(self, model, state, terms):
-        """RB-10: penalizar postergar tareas con fecha límite cercana."""
+        """RB-10: penalizar programar una tarea cerca o después de su fecha límite.
+
+        La urgencia se mide contra ``act.fecha_limite`` (no contra la posición en la
+        ventana), y crece de forma monótona conforme el día evaluado se acerca a la
+        fecha y sigue creciendo al superarla:
+
+            margen   = dia_fecha_limite - dia       # >0 con holgura, 0 el día límite
+            urgencia = holgura - margen             # holgura = RB10_HOLGURA_DIAS
+            pen      = w * urgencia
+
+        Con la holgura por defecto (2 días) un día con margen >= 2 no cuesta nada, el
+        día de la fecha límite cuesta holgura·w y cada día vencido suma w.
+
+        La fórmula anterior era `urgencia = (dia_inicio + dias_totales - 1) - dia`, con
+        el dominio clavado en `w · 6`. Dos fallos: nunca leía `fecha_limite`, así que
+         asignaba a toda tarea con la misma presión artificial; y como era decreciente en el
+        día, el último día de la ventana salía gratis y era el preferido — la regla
+        pagaba justo por aplazar. Además, con más de 7 días la urgencia superaba el
+        tope y el modelo se volvía inviable.
+
+        El tope del dominio se calcula por tarea sobre los días que realmente tiene,
+        no con una constante global: un plazo fuera de la ventana podría dejar el
+        término fuera de rango y devolver un INFEASIBLE espurio, el mismo defecto que
+        arrastraba RB-01.
+
+        Las tareas sin ``fecha_limite`` (o con una no interpretable) no aportan término:
+        sin fecha límite no hay postergación que penalizar.
+        """
         w = self.weights.rb_10
         if w == 0:
             return
-        for info in state["flex"].values():
+        holgura = RB10_HOLGURA_DIAS
+        for tid, info in state["flex"].items():
+            dia_limite = info.get("dia_fecha_limite")
+            if dia_limite is None:
+                continue
+            # Peor día posible para esta tarea; si ninguno cuesta, no hay término.
+            tope = max(
+                (w * (holgura + dia - dia_limite) for dia in info["vars"]),
+                default=0,
+            )
+            if tope <= 0:
+                continue
             for dia, v in info["vars"].items():
-                urgency = (state["meta"]["dia_inicio"] + state["meta"]["dias_totales"] - 1) - dia
-                pen = model.NewIntVar(0, w * 6, f"rb10_pen")
-                model.Add(pen == w * urgency).OnlyEnforceIf(v["p"])
+                urgencia = holgura - (dia_limite - dia)
+                if urgencia <= 0:
+                    continue  # Con holgura suficiente el término es 0: no se crea variable.
+                pen = model.NewIntVar(0, tope, f"rb10_pen_{tid}_d{dia}")
+                model.Add(pen == w * urgencia).OnlyEnforceIf(v["p"])
                 model.Add(pen == 0).OnlyEnforceIf(v["p"].Not())
                 terms.append(pen)
 
